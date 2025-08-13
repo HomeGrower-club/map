@@ -630,7 +630,8 @@ export class DuckDBSpatialService {
     bufferDistance: number,
     mapBounds: LatLngBounds,
     mode: ProcessingMode = 'balanced',
-    progressCallback?: (progress: number, message: string) => void
+    progressCallback?: (progress: number, message: string) => void,
+    abortSignal?: AbortSignal
   ): Promise<{
     restrictedZones: FeatureCollection | null;
     eligibleZones: FeatureCollection | null;
@@ -643,6 +644,13 @@ export class DuckDBSpatialService {
     Logger.log('Mode:', mode);
 
     const startTime = performance.now();
+
+    // Check if operation was aborted before starting
+    if (abortSignal?.aborted) {
+      const error = new Error('Operation was aborted');
+      error.name = 'AbortError';
+      throw error;
+    }
 
     try {
       // Create bounding box
@@ -685,6 +693,13 @@ export class DuckDBSpatialService {
 
       if (progressCallback) {
         progressCallback(20, 'Executing optimized zone calculation...');
+      }
+
+      // Check if operation was aborted before expensive query
+      if (abortSignal?.aborted) {
+        const error = new Error('Operation was aborted');
+        error.name = 'AbortError';
+        throw error;
       }
 
       // Single optimized query that calculates both restricted and eligible zones
@@ -756,6 +771,14 @@ export class DuckDBSpatialService {
 
       // Execute the optimized query
       const result = await this.conn.query(optimizedQuery);
+      
+      // Check if operation was aborted after query
+      if (abortSignal?.aborted) {
+        const error = new Error('Operation was aborted');
+        error.name = 'AbortError';
+        throw error;
+      }
+      
       const data = result.toArray()[0];
       
       // Debug: Check how many locations were found

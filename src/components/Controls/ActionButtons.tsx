@@ -11,11 +11,19 @@ import { ConfirmDialog } from '../Dialogs/ConfirmDialog';
 export function ActionButtons() {
   const { state, dispatch } = useApp();
   
-  // Debug component mounting
+  // Debug component mounting and cleanup
   useEffect(() => {
     Logger.log('🔧 ActionButtons component mounted');
     return () => {
       Logger.log('🗑️ ActionButtons component unmounting');
+      // Cancel any ongoing calculations
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      // Clear any pending timers
+      if (recalculateTimerRef.current) {
+        clearTimeout(recalculateTimerRef.current);
+      }
     };
   }, []);
   const [canCalculate, setCanCalculate] = useState(false);
@@ -25,22 +33,74 @@ export function ActionButtons() {
   const [hasCalculatedOnce, setHasCalculatedOnce] = useState(false);
   const [showFreshDataDialog, setShowFreshDataDialog] = useState(false);
   const [isLoadedFromParquet, setIsLoadedFromParquet] = useState(false);
+  const [hasTriggeredAutoCalculate, setHasTriggeredAutoCalculate] = useState(false);
+  const [hasTriggeredAutoLoad, setHasTriggeredAutoLoad] = useState(false);
   const { isInitialized: isDuckDBReady, isInitializing: isDuckDBInitializing } = useDuckDBSpatial();
   const previousBoundsRef = useRef<string | null>(null);
   const recalculateTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isCalculatingRef = useRef(false);
   const lastManualCalculationRef = useRef<number>(0); // Timestamp of last manual calculation
+  const abortControllerRef = useRef<AbortController | null>(null); // For cancelling queries
   const latestStateRef = useRef(state); // Keep a ref to the latest state
+  const dataLoadedRef = useRef(false); // Track when data is actually loaded and ready
+  const previousZoomRef = useRef<number>(13); // Track zoom level changes, initialized with starting zoom
   
   // Update the ref whenever state changes
   latestStateRef.current = state;
-
-  // Update cache stats when component mounts or cache options are shown
-  useEffect(() => {
-    if (showCacheOptions) {
-      setCacheStats(cacheService.getCacheStats());
+  
+  // Helper function to check if map movement is significant enough to recalculate
+  const isSignificantMovement = useCallback((newBoundsString: string, previousBoundsString: string | null, currentZoom: number): boolean => {
+    // Always recalculate on zoom level change
+    if (currentZoom !== previousZoomRef.current) {
+      Logger.log(`🔍 Zoom changed from ${previousZoomRef.current} to ${currentZoom} - significant movement`);
+      previousZoomRef.current = currentZoom;
+      return true;
     }
-  }, [showCacheOptions]);
+    
+    if (!previousBoundsString) return true;
+    
+    // Parse bounds strings to calculate change percentage
+    const [prevS, prevW, prevN, prevE] = previousBoundsString.split(',').map(Number);
+    const [newS, newW, newN, newE] = newBoundsString.split(',').map(Number);
+    
+    // Calculate the current viewport size
+    const prevWidth = prevE - prevW;
+    const prevHeight = prevN - prevS;
+    const newWidth = newE - newW;
+    const newHeight = newN - newS;
+    
+    // Calculate center movement as percentage of viewport
+    const prevCenterLat = (prevN + prevS) / 2;
+    const prevCenterLng = (prevE + prevW) / 2;
+    const newCenterLat = (newN + newS) / 2;
+    const newCenterLng = (newE + newW) / 2;
+    
+    const centerMovementLat = Math.abs(newCenterLat - prevCenterLat) / prevHeight;
+    const centerMovementLng = Math.abs(newCenterLng - prevCenterLng) / prevWidth;
+    
+    // Calculate viewport size change
+    const sizeChangeLat = Math.abs(newHeight - prevHeight) / prevHeight;
+    const sizeChangeLng = Math.abs(newWidth - prevWidth) / prevWidth;
+    
+    const maxCenterMovement = Math.max(centerMovementLat, centerMovementLng);
+    const maxSizeChange = Math.max(sizeChangeLat, sizeChangeLng);
+    
+    // Thresholds: 5% center movement or 10% size change
+    const significantCenterMovement = maxCenterMovement > 0.05;
+    const significantSizeChange = maxSizeChange > 0.10;
+    
+    const isSignificant = significantCenterMovement || significantSizeChange;
+    
+    if (!isSignificant) {
+      Logger.log(`📍 Movement too small: center ${(maxCenterMovement * 100).toFixed(1)}%, size ${(maxSizeChange * 100).toFixed(1)}% - skipping recalculation`);
+    } else {
+      Logger.log(`📍 Significant movement: center ${(maxCenterMovement * 100).toFixed(1)}%, size ${(maxSizeChange * 100).toFixed(1)}% - will recalculate`);
+    }
+    
+    return isSignificant;
+  }, []);
+
+  // Auto-load data when app starts (defined after handleFetchData)
 
   const handleFetchData = useCallback(async (forceRefresh = false) => {
     if (!state.map.bounds) {
@@ -109,7 +169,8 @@ export function ActionButtons() {
           setCanCalculate(true);
           Logger.log('✅ About to setIsLoadedFromParquet(true) - Parquet load successful');
           setIsLoadedFromParquet(true);
-          Logger.log('✅ setIsLoadedFromParquet(true) called');
+          dataLoadedRef.current = true; // Mark data as loaded and ready
+          Logger.log('✅ setIsLoadedFromParquet(true) called - data ready for calculations');
 
           setTimeout(() => {
             dispatch({ 
@@ -184,6 +245,7 @@ export function ActionButtons() {
       });
 
       setCanCalculate(true);
+      dataLoadedRef.current = true; // Mark data as loaded and ready
 
       setTimeout(() => {
         dispatch({ 
@@ -208,10 +270,13 @@ export function ActionButtons() {
   }, [state.map.bounds, dispatch, isDuckDBReady]);
 
   const handleCalculateZones = useCallback(async (isAutoRecalculate = false) => {
-    // Debug: Log current state
-    Logger.log(`Calculate zones called - hasRestrictedLocations: ${!!state.data.restrictedLocations}, isLoadedFromParquet: ${isLoadedFromParquet}, hasBounds: ${!!state.map.bounds}, zoom: ${state.map.zoom}`);
-    if (state.map.bounds) {
-      const bounds = state.map.bounds;
+    // Use latest state to avoid stale closure issues
+    const currentState = latestStateRef.current;
+    
+    // Debug: Log current state (using fresh values)
+    Logger.log(`Calculate zones called - hasRestrictedLocations: ${!!currentState.data.restrictedLocations}, isLoadedFromParquet: ${isLoadedFromParquet}, hasBounds: ${!!currentState.map.bounds}, zoom: ${currentState.map.zoom}`);
+    if (currentState.map.bounds) {
+      const bounds = currentState.map.bounds;
       Logger.log(`Current bounds: N=${bounds.getNorth().toFixed(6)}, S=${bounds.getSouth().toFixed(6)}, E=${bounds.getEast().toFixed(6)}, W=${bounds.getWest().toFixed(6)}`);
     }
     
@@ -228,8 +293,8 @@ export function ActionButtons() {
     }
     
     // Check if data is loaded (OSM API, Parquet state, or DuckDB directly)
-    const hasData = state.data.restrictedLocations || isLoadedFromParquet || hasDuckDBData;
-    if (!hasData || !state.map.bounds) {
+    const hasData = currentState.data.restrictedLocations || isLoadedFromParquet || hasDuckDBData;
+    if (!hasData || !currentState.map.bounds) {
       dispatch({ 
         type: 'SET_STATUS', 
         payload: { message: 'Please load restricted locations first', type: 'error' } 
@@ -238,8 +303,8 @@ export function ActionButtons() {
     }
 
     // Check minimum zoom level to prevent timeouts on large areas
-    const minZoomForCalculation = 13; // 3 levels above minimum zoom (10 + 3)
-    if (state.map.zoom < minZoomForCalculation) {
+    const minZoomForCalculation = 15; // Requires 2 zoom-ins from default level 13 (13 + 2)
+    if (currentState.map.zoom < minZoomForCalculation) {
       dispatch({ 
         type: 'SET_STATUS', 
         payload: { 
@@ -250,12 +315,21 @@ export function ActionButtons() {
       return;
     }
 
+    // Cancel any existing calculation
+    if (abortControllerRef.current) {
+      Logger.log('Cancelling previous calculation...');
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+
     // Prevent multiple simultaneous calculations
     if (isCalculatingRef.current) {
       Logger.log('Calculation already in progress, skipping...');
       return;
     }
 
+    // Create new abort controller for this calculation
+    abortControllerRef.current = new AbortController();
     isCalculatingRef.current = true;
     
     // Only record timestamp for manual calculations (button clicks)
@@ -284,15 +358,16 @@ export function ActionButtons() {
       Logger.log('Using DuckDB for spatial processing');
       
       const result = await duckdbSpatial.calculateZones(
-        state.processing.bufferDistance,
-        state.map.bounds,
-        state.processing.mode,
+        currentState.processing.bufferDistance,
+        currentState.map.bounds,
+        currentState.processing.mode,
         (progress, message) => {
           dispatch({ 
             type: 'SET_PROGRESS', 
             payload: { progress, message } 
           });
-        }
+        },
+        abortControllerRef.current?.signal // Pass abort signal
       );
 
       // Process DuckDB results
@@ -317,7 +392,7 @@ export function ActionButtons() {
         dispatch({ 
           type: 'SET_STATUS', 
           payload: { 
-            message: `Zones calculated with ${state.processing.bufferDistance}m buffer (DuckDB)`, 
+            message: `Zones calculated with ${currentState.processing.bufferDistance}m buffer (DuckDB)`, 
             type: 'success' 
           } 
         });
@@ -327,7 +402,7 @@ export function ActionButtons() {
           payload: {
             features: featureCount,
             time: parseInt(elapsed),
-            mode: `${state.processing.mode} (DuckDB)`
+            mode: `${currentState.processing.mode} (DuckDB)`
           } 
         });
 
@@ -354,80 +429,43 @@ export function ActionButtons() {
         });
       }
     } catch (error) {
-      dispatch({ 
-        type: 'SET_STATUS', 
-        payload: { message: 'Error calculating zones', type: 'error' } 
-      });
-      Logger.error('Calculation error', error);
+      // Check if calculation was aborted
+      if (error instanceof Error && error.name === 'AbortError') {
+        Logger.log('Calculation was cancelled');
+        dispatch({ 
+          type: 'SET_STATUS', 
+          payload: { message: 'Calculation cancelled', type: 'info' } 
+        });
+      } else {
+        dispatch({ 
+          type: 'SET_STATUS', 
+          payload: { message: 'Error calculating zones', type: 'error' } 
+        });
+        Logger.error('Calculation error', error);
+      }
       dispatch({ 
         type: 'SET_PROGRESS', 
         payload: { progress: 0, message: '' } 
       });
     } finally {
       isCalculatingRef.current = false; // Reset the calculation flag
+      abortControllerRef.current = null; // Clear abort controller
       dispatch({ type: 'SET_LOADING', payload: false });
     }
-  }, [state.data.restrictedLocations, state.map.bounds, state.map.zoom, state.processing.bufferDistance, state.processing.mode, dispatch, isDuckDBReady]);
-
-  // Auto-recalculate zones when map bounds change
-  useEffect(() => {
-    // Skip if auto-recalculate is disabled or we haven't calculated once yet
-    if (!autoRecalculate || !hasCalculatedOnce || (!state.data.restrictedLocations && !isLoadedFromParquet)) {
-      return;
-    }
-
-    // Skip if currently loading or calculating
-    if (state.processing.isLoading || isCalculatingRef.current) {
-      return;
-    }
-
-    // Skip if a manual calculation happened recently (within 2 seconds)
-    const timeSinceManualCalculation = Date.now() - lastManualCalculationRef.current;
-    if (timeSinceManualCalculation < 2000) {
-      Logger.log(`Skipping auto-recalculate - manual calculation happened ${timeSinceManualCalculation}ms ago`);
-      return;
-    }
-
-    // Check if bounds have actually changed
-    if (state.map.bounds) {
-      // Round to 4 decimal places to avoid floating point precision issues
-      const currentBounds = `${state.map.bounds.getSouth().toFixed(4)},${state.map.bounds.getWest().toFixed(4)},${state.map.bounds.getNorth().toFixed(4)},${state.map.bounds.getEast().toFixed(4)}`;
-      
-      // Skip if bounds haven't changed meaningfully
-      if (previousBoundsRef.current === currentBounds) {
-        return;
-      }
-      
-      Logger.log(`Bounds changed from: ${previousBoundsRef.current} to: ${currentBounds}`);
-      
-      // Update the previous bounds
-      previousBoundsRef.current = currentBounds;
-      
-      // Clear any existing timer
-      if (recalculateTimerRef.current) {
-        clearTimeout(recalculateTimerRef.current);
-      }
-      
-      // Set a new timer for recalculation
-      recalculateTimerRef.current = setTimeout(() => {
-        Logger.log(`Auto-recalculating zones for new bounds: ${currentBounds}`);
-        handleCalculateZones(true); // Pass true for auto-recalculate
-      }, 750); // Slightly longer debounce for better UX
-    }
-    
-    // Cleanup function
-    return () => {
-      if (recalculateTimerRef.current) {
-        clearTimeout(recalculateTimerRef.current);
-      }
-    };
-  }, [state.map.bounds, autoRecalculate, hasCalculatedOnce, state.data.restrictedLocations, state.processing.isLoading, handleCalculateZones]);
+  }, [state.processing.bufferDistance, state.processing.mode, dispatch, isDuckDBReady]);
 
   const handleClearAll = useCallback(() => {
     dispatch({ type: 'CLEAR_ALL' });
     setCanCalculate(false);
     setHasCalculatedOnce(false);
-    previousBoundsRef.current = null; // Reset the bounds tracking
+    setHasTriggeredAutoCalculate(false);
+    setHasTriggeredAutoLoad(false);
+    setIsLoadedFromParquet(false);
+    // Reset all refs
+    previousBoundsRef.current = null;
+    dataLoadedRef.current = false;
+    previousZoomRef.current = 13; // Reset to starting zoom level
+    lastManualCalculationRef.current = 0;
   }, [dispatch]);
 
   const handleClearCache = useCallback(() => {
@@ -447,6 +485,116 @@ export function ActionButtons() {
     setShowFreshDataDialog(false);
     await handleFetchData(true); // Force refresh
   }, [handleFetchData]);
+
+  // Auto-load data when app starts (now after all callbacks are defined)
+  useEffect(() => {
+    if (!hasTriggeredAutoLoad && isDuckDBReady && !state.processing.isLoading) {
+      Logger.log('🚀 App started - attempting to auto-load data');
+      setHasTriggeredAutoLoad(true);
+      handleFetchData(false); // Try to load from Parquet first
+    }
+  }, [isDuckDBReady, hasTriggeredAutoLoad, state.processing.isLoading, handleFetchData]);
+
+  // Auto-calculate when user reaches minimum zoom level for the first time (now after all callbacks are defined)
+  useEffect(() => {
+    const minZoomForCalculation = 15;
+    
+    // Only proceed if data is actually loaded and ready
+    if (!dataLoadedRef.current) {
+      return;
+    }
+    
+    // Check if we should trigger auto-calculation
+    if (
+      !hasTriggeredAutoCalculate &&           // Haven't auto-calculated before
+      !hasCalculatedOnce &&                   // User hasn't manually calculated
+      !state.processing.isLoading &&          // Not currently loading
+      !isCalculatingRef.current &&            // Not currently calculating
+      state.map.zoom >= minZoomForCalculation && // Zoom level is sufficient
+      state.map.bounds                         // Map bounds are set
+    ) {
+      Logger.log(`🎯 Auto-triggering calculation at zoom level ${state.map.zoom} (data confirmed loaded)`);
+      setHasTriggeredAutoCalculate(true);
+      handleCalculateZones(true); // Trigger as auto-calculation
+    }
+  }, [
+    state.map.zoom, 
+    state.processing.isLoading, 
+    state.map.bounds,
+    hasTriggeredAutoCalculate,
+    hasCalculatedOnce,
+    handleCalculateZones,
+    isLoadedFromParquet  // Keep this to trigger when Parquet data becomes available
+  ]);
+
+  // Update cache stats when component mounts or cache options are shown
+  useEffect(() => {
+    if (showCacheOptions) {
+      setCacheStats(cacheService.getCacheStats());
+    }
+  }, [showCacheOptions]);
+
+  // Auto-recalculate zones when map bounds change
+  useEffect(() => {
+    // Skip if auto-recalculate is disabled or we haven't calculated once yet
+    if (!autoRecalculate || !hasCalculatedOnce || !dataLoadedRef.current) {
+      return;
+    }
+
+    // Skip if currently loading or calculating
+    if (state.processing.isLoading || isCalculatingRef.current) {
+      return;
+    }
+
+    // Skip if a manual calculation happened recently (within 3 seconds)
+    const timeSinceManualCalculation = Date.now() - lastManualCalculationRef.current;
+    if (timeSinceManualCalculation < 3000) {
+      Logger.log(`⏳ Skipping auto-recalculate - manual calculation happened ${timeSinceManualCalculation}ms ago (cooling down)`);
+      return;
+    }
+
+    // Check if bounds have actually changed and movement is significant
+    if (state.map.bounds) {
+      // Round to 4 decimal places to avoid floating point precision issues
+      const currentBounds = `${state.map.bounds.getSouth().toFixed(4)},${state.map.bounds.getWest().toFixed(4)},${state.map.bounds.getNorth().toFixed(4)},${state.map.bounds.getEast().toFixed(4)}`;
+      
+      // Skip if bounds haven't changed
+      if (previousBoundsRef.current === currentBounds) {
+        return;
+      }
+      
+      // Check if movement is significant enough to recalculate
+      if (!isSignificantMovement(currentBounds, previousBoundsRef.current, state.map.zoom)) {
+        // Update bounds but don't recalculate
+        previousBoundsRef.current = currentBounds;
+        return;
+      }
+      
+      Logger.log(`🗺️ Bounds changed significantly from: ${previousBoundsRef.current} to: ${currentBounds}`);
+      
+      // Update the previous bounds
+      previousBoundsRef.current = currentBounds;
+      
+      // Clear any existing timer
+      if (recalculateTimerRef.current) {
+        Logger.log('⏳ Cancelling previous auto-recalculate timer');
+        clearTimeout(recalculateTimerRef.current);
+      }
+      
+      // Set a new timer for recalculation with longer debounce
+      recalculateTimerRef.current = setTimeout(() => {
+        Logger.log(`🔄 Auto-recalculating zones after significant bounds change`);
+        handleCalculateZones(true); // Pass true for auto-recalculate
+      }, 1000); // Longer debounce: 1 second instead of 750ms
+    }
+    
+    // Cleanup function
+    return () => {
+      if (recalculateTimerRef.current) {
+        clearTimeout(recalculateTimerRef.current);
+      }
+    };
+  }, [state.map.bounds, state.map.zoom, autoRecalculate, hasCalculatedOnce, state.processing.isLoading, handleCalculateZones, isSignificantMovement]);
 
   return (
     <>
@@ -469,8 +617,8 @@ export function ActionButtons() {
         </button>
       </div>
       
-      {/* Fresh data button - show when loaded from Parquet */}
-      {isLoadedFromParquet && (
+      {/* Fresh data button - only in debug mode when loaded from Parquet */}
+      {DEBUG_MODE && isLoadedFromParquet && (
         <div className="control-group">
           <button
             onClick={handleFreshDataClick}
@@ -511,10 +659,10 @@ export function ActionButtons() {
         <button
           id="calculate-zones"
           onClick={handleCalculateZones}
-          disabled={state.processing.isLoading || !canCalculate || state.map.zoom < 13}
+          disabled={state.processing.isLoading || !canCalculate || state.map.zoom < 15}
           title={
-            state.map.zoom < 13 
-              ? `Please zoom in further (minimum zoom level 13 required, current: ${state.map.zoom})`
+            state.map.zoom < 15 
+              ? `Please zoom in further (minimum zoom level 15 required, current: ${state.map.zoom})`
               : !canCalculate
               ? 'Please load restricted locations first'
               : 'Calculate zones for cannabis clubs'

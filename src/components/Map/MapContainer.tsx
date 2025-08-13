@@ -17,13 +17,15 @@ function MapBoundsTracker() {
   useEffect(() => {
     const updateBounds = () => {
       const bounds = map.getBounds();
+      const zoom = map.getZoom();
       dispatch({ type: 'SET_MAP_BOUNDS', payload: bounds });
+      dispatch({ type: 'SET_MAP_ZOOM', payload: zoom });
     };
 
-    // Set initial bounds
+    // Set initial bounds and zoom
     updateBounds();
 
-    // Update bounds on map move/zoom
+    // Update bounds and zoom on map move/zoom
     map.on('moveend', updateBounds);
     map.on('zoomend', updateBounds);
 

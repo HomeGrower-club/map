@@ -35,6 +35,7 @@ export interface AppState {
 
 export type AppAction = 
   | { type: 'SET_MAP_BOUNDS'; payload: LatLngBounds }
+  | { type: 'SET_MAP_ZOOM'; payload: number }
   | { type: 'SET_RESTRICTED_LOCATIONS'; payload: OSMData }
   | { type: 'SET_GEOJSON'; payload: FeatureCollection }
   | { type: 'SET_BUFFER_ZONES'; payload: Feature }

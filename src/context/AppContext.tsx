@@ -36,6 +36,12 @@ function appReducer(state: AppState, action: AppAction): AppState {
         map: { ...state.map, bounds: action.payload }
       };
     
+    case 'SET_MAP_ZOOM':
+      return {
+        ...state,
+        map: { ...state.map, zoom: action.payload }
+      };
+    
     case 'SET_RESTRICTED_LOCATIONS':
       return {
         ...state,
