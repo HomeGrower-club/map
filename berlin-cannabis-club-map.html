@@ -1,0 +1,1198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Berlin Cannabis Social Club Eligible Areas</title>
+    <!-- 
+    ============================================================================
+    CANNABIS SOCIAL CLUB ZONE CALCULATOR - TECHNICAL DOCUMENTATION
+    ============================================================================
+    
+    PURPOSE:
+    This application visualizes legally compliant zones for cannabis social clubs
+    in Berlin, Germany. Following the German Cannabis Act (CanG) which came into 
+    effect on April 1, 2024, cannabis clubs must maintain minimum distances from
+    sensitive locations such as schools, playgrounds, and youth facilities.
+    
+    TECHNICAL OVERVIEW:
+    - Uses OpenStreetMap (OSM) data via Overpass API for real-time location data
+    - Implements geospatial buffer calculations to create exclusion zones
+    - Calculates eligible areas using computational geometry operations
+    - Provides interactive visualization using Leaflet.js mapping library
+    
+    ARCHITECTURE:
+    The application follows a modular architecture with clear separation of concerns:
+    1. Configuration Module: Centralized settings and parameters
+    2. Logger Module: Comprehensive debugging and performance monitoring
+    3. Map Module: Leaflet.js wrapper for map rendering and layer management
+    4. Data Fetcher Module: OSM/Overpass API integration
+    5. Geometry Processor Module: Geospatial calculations using Turf.js
+    6. UI Controller Module: User interaction and state management
+    
+    DEPENDENCIES:
+    - Leaflet 1.9.4: Interactive map rendering
+    - Turf.js 6.5.0: Advanced geospatial analysis (buffer, union, difference)
+    - Overpass API: OpenStreetMap data querying service
+    
+    REGULATORY CONTEXT:
+    German law requires cannabis social clubs to maintain distance from:
+    - Schools and educational facilities
+    - Kindergartens and daycare centers
+    - Playgrounds and recreational areas for children
+    - Youth centers and facilities
+    - Sports facilities frequented by minors
+    Default buffer distance is 200 meters but is configurable (50-500m range)
+    
+    PERFORMANCE CONSIDERATIONS:
+    - Berlin has thousands of sensitive locations, creating computational challenges
+    - Implements three processing modes (fast/balanced/accurate) with different trade-offs
+    - Uses chunked processing to prevent UI blocking
+    - Implements geometry simplification to reduce computational complexity
+    - Progressive rendering with visual feedback for long operations
+    
+    DATA FLOW:
+    1. User initiates data fetch from current map viewport
+    2. Overpass API query retrieves all sensitive locations
+    3. OSM XML/JSON data converted to GeoJSON format
+    4. Buffer zones created around each sensitive location
+    5. Buffers merged into unified restricted area
+    6. Eligible zones calculated as inverse of restricted areas
+    7. Results rendered as map layers with visual distinction
+    
+    ============================================================================
+    -->
+    
+    <!-- Leaflet CSS for map styling -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+    
+    <!-- Core JavaScript libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
+    
+    <style>
+        /* Base layout - full viewport map with overlay controls */
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+        }
+        
+        #map {
+            height: 100vh;
+            width: 100%;
+        }
+        
+        /* Control panel styling - positioned top-right with shadow for depth */
+        .controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            z-index: 1000; /* Ensure controls stay above map */
+            max-width: 350px;
+        }
+        
+        .controls h3 {
+            margin: 0 0 10px 0;
+            font-size: 16px;
+        }
+        
+        .control-group {
+            margin-bottom: 10px;
+        }
+        
+        .control-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 14px;
+        }
+        
+        .control-group input, .control-group select {
+            width: 100%;
+            padding: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        
+        .control-group button {
+            width: 100%;
+            padding: 8px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        .control-group button:hover {
+            background: #45a049;
+        }
+        
+        .control-group button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        /* Legend section for map interpretation */
+        .legend {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #ddd;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 5px;
+            font-size: 13px;
+        }
+        
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            margin-right: 8px;
+            border: 1px solid #ccc;
+        }
+        
+        /* Status display for user feedback */
+        .status {
+            margin-top: 10px;
+            padding: 8px;
+            background: #f0f0f0;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        
+        /* Progress bar for long operations */
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #f0f0f0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 5px;
+            display: none; /* Hidden by default, shown during processing */
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: #4CAF50;
+            transition: width 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 11px;
+        }
+        
+        /* Statistics display for performance metrics */
+        .stats {
+            margin-top: 10px;
+            padding: 8px;
+            background: #e8f5e9;
+            border-radius: 4px;
+            font-size: 12px;
+            display: none; /* Hidden until data is processed */
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div class="controls">
+        <h3>Cannabis Club Zone Calculator</h3>
+        
+        <!-- Buffer distance control - core parameter for exclusion zones -->
+        <div class="control-group">
+            <label for="buffer-distance">Buffer Distance (meters):</label>
+            <input type="number" id="buffer-distance" value="200" min="50" max="500" step="50">
+        </div>
+        
+        <!-- Performance mode selector - trades accuracy for speed -->
+        <div class="control-group">
+            <label for="calculation-mode">Calculation Mode:</label>
+            <select id="calculation-mode">
+                <option value="fast">Fast (Less Accurate)</option>
+                <option value="balanced" selected>Balanced</option>
+                <option value="accurate">Accurate (Slower)</option>
+            </select>
+        </div>
+        
+        <!-- Action buttons for workflow control -->
+        <div class="control-group">
+            <button id="fetch-data">Load Restricted Locations</button>
+        </div>
+        
+        <div class="control-group">
+            <button id="calculate-zones" disabled>Calculate Eligible Zones</button>
+        </div>
+        
+        <div class="control-group">
+            <button id="clear-all">Clear All</button>
+        </div>
+        
+        <!-- Dynamic status and progress indicators -->
+        <div class="status" id="status">Ready to load data</div>
+        
+        <div class="progress-bar" id="progress-bar">
+            <div class="progress-fill" id="progress-fill">0%</div>
+        </div>
+        
+        <div class="stats" id="stats"></div>
+        
+        <!-- Visual legend for map interpretation -->
+        <div class="legend">
+            <h4 style="margin: 0 0 10px 0; font-size: 14px;">Legend</h4>
+            <div class="legend-item">
+                <div class="legend-color" style="background: rgba(255, 0, 0, 0.3);"></div>
+                <span>Restricted Areas (Buffer Zones)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: rgba(0, 255, 0, 0.3);"></div>
+                <span>Eligible Areas</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #3388ff;"></div>
+                <span>Sensitive Locations</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * ============================================================================
+         * CONFIGURATION MODULE
+         * ============================================================================
+         * Centralized configuration for all application parameters.
+         * This includes map settings, API endpoints, processing parameters,
+         * and visual styling. Keeping configuration centralized makes it easy
+         * to adjust parameters without searching through code.
+         */
+        const Config = {
+            /**
+             * Map configuration
+             * - center: Berlin city center coordinates (latitude, longitude)
+             * - zoom: Initial zoom level (11 shows most of Berlin)
+             * - minZoom/maxZoom: Prevent users from zooming too far in/out
+             */
+            map: {
+                center: [52.520, 13.405], // Berlin center coordinates
+                zoom: 11,                  // City-wide view
+                minZoom: 10,               // Prevent zooming out too far
+                maxZoom: 18                // Maximum detail level
+            },
+            
+            /**
+             * Overpass API configuration
+             * Overpass is a read-only API that serves OpenStreetMap data
+             * - url: Public Overpass API endpoint (rate-limited)
+             * - timeout: Maximum query execution time in seconds
+             */
+            overpass: {
+                url: 'https://overpass-api.de/api/interpreter',
+                timeout: 30 // Seconds before query timeout
+            },
+            
+            /**
+             * Processing configuration for performance optimization
+             * - chunkSize: Number of features to process per batch
+             * - simplifyTolerance: Geometry simplification levels
+             *   Higher values = faster but less accurate
+             */
+            processing: {
+                chunkSize: 50,  // Features per processing batch
+                simplifyTolerance: {
+                    fast: 0.001,      // ~100m accuracy
+                    balanced: 0.0001, // ~10m accuracy
+                    accurate: 0.00001 // ~1m accuracy
+                }
+            },
+            
+            /**
+             * Visual styles for map layers
+             * Using semi-transparent fills to show overlapping areas
+             */
+            styles: {
+                restrictedZone: {
+                    color: '#ff0000',
+                    fillColor: '#ff0000',
+                    fillOpacity: 0.3,
+                    weight: 1
+                },
+                eligibleZone: {
+                    color: '#00ff00',
+                    fillColor: '#00ff00',
+                    fillOpacity: 0.3,
+                    weight: 2
+                },
+                sensitiveLocation: {
+                    color: '#3388ff',
+                    fillColor: '#3388ff',
+                    fillOpacity: 0.5,
+                    radius: 5
+                }
+            }
+        };
+
+        /**
+         * ============================================================================
+         * LOGGER MODULE
+         * ============================================================================
+         * Comprehensive logging system for debugging and performance monitoring.
+         * Provides grouped logging, timing measurements, and severity levels.
+         * Essential for diagnosing issues in complex geospatial calculations.
+         */
+        const Logger = {
+            startTime: null, // Track operation timing
+            
+            /**
+             * Start a new log group with timing
+             * @param {string} name - Group name for console organization
+             */
+            group(name) {
+                console.group(`🔷 ${name}`);
+                this.startTime = performance.now();
+            },
+            
+            /**
+             * End log group and report elapsed time
+             * @param {string} name - Group name (for context)
+             */
+            groupEnd(name) {
+                const elapsed = this.startTime ? (performance.now() - this.startTime).toFixed(2) : 0;
+                console.log(`⏱️ Time elapsed: ${elapsed}ms`);
+                console.groupEnd();
+            },
+            
+            /**
+             * Standard log with timestamp
+             * @param {string} message - Log message
+             * @param {*} data - Optional data to log
+             */
+            log(message, data = null) {
+                const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
+                if (data) {
+                    console.log(`[${timestamp}] ${message}`, data);
+                } else {
+                    console.log(`[${timestamp}] ${message}`);
+                }
+            },
+            
+            /**
+             * Warning log for non-critical issues
+             * @param {string} message - Warning message
+             * @param {*} data - Optional data
+             */
+            warn(message, data = null) {
+                if (data) {
+                    console.warn(`⚠️ ${message}`, data);
+                } else {
+                    console.warn(`⚠️ ${message}`);
+                }
+            },
+            
+            /**
+             * Error log for critical issues
+             * @param {string} message - Error context
+             * @param {Error} error - Error object
+             */
+            error(message, error) {
+                console.error(`❌ ${message}`, error);
+            }
+        };
+
+        /**
+         * ============================================================================
+         * MAP MODULE
+         * ============================================================================
+         * Wrapper around Leaflet.js for map management.
+         * Handles map initialization, layer management, and rendering.
+         * Separates mapping concerns from business logic.
+         */
+        const MapModule = {
+            map: null, // Leaflet map instance
+            
+            /**
+             * Layer groups for different data types
+             * Using separate layers allows independent control of each data type
+             */
+            layers: {
+                restricted: null,  // Red buffer zones
+                eligible: null,    // Green allowed areas
+                sensitive: null    // Blue source locations
+            },
+            
+            /**
+             * Initialize Leaflet map with OSM base tiles
+             * @returns {L.Map} Leaflet map instance
+             */
+            init() {
+                Logger.log('Initializing map...');
+                
+                // Create Leaflet map instance
+                this.map = L.map('map').setView(Config.map.center, Config.map.zoom);
+                
+                // Add OpenStreetMap tile layer
+                // Using OSM's public tile server (consider using custom tiles for production)
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© OpenStreetMap contributors',
+                    minZoom: Config.map.minZoom,
+                    maxZoom: Config.map.maxZoom
+                }).addTo(this.map);
+                
+                // Initialize layer groups (order matters for z-index)
+                this.layers.sensitive = L.layerGroup().addTo(this.map);
+                this.layers.restricted = L.layerGroup().addTo(this.map);
+                this.layers.eligible = L.layerGroup().addTo(this.map);
+                
+                Logger.log('Map initialized successfully');
+                return this.map;
+            },
+            
+            /**
+             * Clear all features from a specific layer
+             * @param {string} layerName - Name of layer to clear
+             */
+            clearLayer(layerName) {
+                if (this.layers[layerName]) {
+                    this.layers[layerName].clearLayers();
+                    Logger.log(`Cleared layer: ${layerName}`);
+                }
+            },
+            
+            /**
+             * Clear all map layers
+             */
+            clearAllLayers() {
+                Object.keys(this.layers).forEach(layer => this.clearLayer(layer));
+            },
+            
+            /**
+             * Add GeoJSON data to a specific layer
+             * @param {string} layerName - Target layer name
+             * @param {Object} geoJson - GeoJSON feature or collection
+             * @param {Object} style - Leaflet style object
+             */
+            addToLayer(layerName, geoJson, style) {
+                if (this.layers[layerName]) {
+                    L.geoJSON(geoJson, { style }).addTo(this.layers[layerName]);
+                    Logger.log(`Added geometry to layer: ${layerName}`);
+                }
+            }
+        };
+
+        /**
+         * ============================================================================
+         * DATA FETCHING MODULE
+         * ============================================================================
+         * Handles communication with Overpass API to retrieve OpenStreetMap data.
+         * Overpass uses a custom query language (Overpass QL) to filter OSM data.
+         * This module constructs queries for sensitive locations and handles responses.
+         */
+        const DataFetcher = {
+            /**
+             * Build Overpass QL query for sensitive locations
+             * @param {L.LatLngBounds} bounds - Map viewport bounds
+             * @returns {string} Overpass QL query string
+             * 
+             * Query structure explained:
+             * - [out:json]: Request JSON format response
+             * - [timeout:X]: Set query timeout
+             * - (way|node|relation): Query different OSM element types
+             * - ["key"="value"]: Filter by tags
+             * - (bbox): Limit to bounding box
+             * - out body: Return full element data
+             * - >; out skel qt: Return referenced nodes (for ways)
+             */
+            buildOverpassQuery(bounds) {
+                // Extract bounding box coordinates (south,west,north,east)
+                const bbox = `${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}`;
+                
+                Logger.log('Building Overpass query for bbox:', bbox);
+                
+                // Overpass QL query
+                // Each line queries different types of sensitive locations
+                return `
+                    [out:json][timeout:${Config.overpass.timeout}];
+                    (
+                        // Educational facilities
+                        // Schools are tagged with amenity=school in OSM
+                        way["amenity"="school"](${bbox});
+                        node["amenity"="school"](${bbox});
+                        relation["amenity"="school"](${bbox});
+                        
+                        // Childcare facilities
+                        // Kindergartens use amenity=kindergarten
+                        way["amenity"="kindergarten"](${bbox});
+                        node["amenity"="kindergarten"](${bbox});
+                        
+                        // Recreational areas for children
+                        // Playgrounds use leisure=playground
+                        way["leisure"="playground"](${bbox});
+                        node["leisure"="playground"](${bbox});
+                        
+                        // Youth-specific community centers
+                        // Using regex (~) to match youth or juvenile values
+                        way["amenity"="community_centre"]["community_centre:for"~"youth|juvenile"](${bbox});
+                        node["amenity"="community_centre"]["community_centre:for"~"youth|juvenile"](${bbox});
+                        
+                        // Sports facilities (often used by youth teams)
+                        // Many youth sports activities happen here
+                        way["leisure"="sports_centre"](${bbox});
+                        node["leisure"="sports_centre"](${bbox});
+                    );
+                    out body;  // Return full element data
+                    >;          // Recurse down to get nodes for ways
+                    out skel qt; // Output in compact format
+                `;
+            },
+            
+            /**
+             * Execute Overpass API query
+             * @param {L.LatLngBounds} bounds - Map viewport bounds
+             * @returns {Promise<Object>} OSM data in JSON format
+             * @throws {Error} On network or API errors
+             */
+            async fetchRestrictedLocations(bounds) {
+                const query = this.buildOverpassQuery(bounds);
+                
+                Logger.group('Fetching Restricted Locations');
+                Logger.log('Query length:', query.length);
+                
+                try {
+                    // POST request to Overpass API
+                    // Using POST because queries can be large
+                    const response = await fetch(Config.overpass.url, {
+                        method: 'POST',
+                        body: `data=${encodeURIComponent(query)}`,
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded'
+                        }
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    
+                    const data = await response.json();
+                    Logger.log('Fetched elements:', data.elements.length);
+                    Logger.groupEnd('Fetching Restricted Locations');
+                    
+                    return data;
+                } catch (error) {
+                    Logger.error('Error fetching data', error);
+                    Logger.groupEnd('Fetching Restricted Locations');
+                    throw error;
+                }
+            }
+        };
+
+        /**
+         * ============================================================================
+         * GEOMETRY PROCESSING MODULE
+         * ============================================================================
+         * Core geospatial processing using Turf.js library.
+         * Handles conversion from OSM format to GeoJSON, buffer creation,
+         * and boolean operations (union, difference) for zone calculation.
+         * This is the most computationally intensive part of the application.
+         */
+        const GeometryProcessor = {
+            /**
+             * Convert OSM JSON data to GeoJSON format
+             * @param {Object} osmData - Raw OSM data from Overpass
+             * @returns {Object} GeoJSON FeatureCollection
+             * 
+             * OSM data structure:
+             * - Nodes: Points with lat/lon coordinates
+             * - Ways: Ordered lists of node references
+             * - Relations: Groups of nodes/ways (complex geometries)
+             * 
+             * Conversion process:
+             * 1. Index all nodes by ID for quick lookup
+             * 2. Convert nodes with tags to Point features
+             * 3. Convert ways to LineString or Polygon features
+             * 4. Resolve node references to coordinates
+             */
+            osmToGeoJSON(osmData) {
+                Logger.group('Converting OSM to GeoJSON');
+                const features = [];
+                const nodes = {}; // Node ID -> [lon, lat] mapping
+                
+                // First pass: Index all nodes
+                // This allows quick coordinate lookup when processing ways
+                osmData.elements.forEach(el => {
+                    if (el.type === 'node') {
+                        nodes[el.id] = [el.lon, el.lat];
+                    }
+                });
+                
+                Logger.log('Indexed nodes:', Object.keys(nodes).length);
+                
+                // Second pass: Create GeoJSON features
+                osmData.elements.forEach(el => {
+                    // Process point features (nodes with tags)
+                    if (el.type === 'node' && el.tags) {
+                        features.push({
+                            type: 'Feature',
+                            geometry: {
+                                type: 'Point',
+                                coordinates: [el.lon, el.lat]
+                            },
+                            properties: el.tags // Preserve OSM tags as properties
+                        });
+                    } 
+                    // Process line/polygon features (ways)
+                    else if (el.type === 'way' && el.nodes) {
+                        // Resolve node IDs to coordinates
+                        const coords = el.nodes.map(nodeId => nodes[nodeId]).filter(c => c);
+                        
+                        if (coords.length > 0) {
+                            // Check if way is closed (first coord = last coord)
+                            const isClosed = coords[0][0] === coords[coords.length-1][0] && 
+                                           coords[0][1] === coords[coords.length-1][1];
+                            
+                            features.push({
+                                type: 'Feature',
+                                geometry: {
+                                    // Closed ways become Polygons, open ways become LineStrings
+                                    type: isClosed ? 'Polygon' : 'LineString',
+                                    // Polygons need coords wrapped in extra array level
+                                    coordinates: isClosed ? [coords] : coords
+                                },
+                                properties: el.tags || {}
+                            });
+                        }
+                    }
+                    // Note: Relations are complex and not fully handled here
+                });
+                
+                Logger.log('Created features:', features.length);
+                Logger.groupEnd('Converting OSM to GeoJSON');
+                
+                return {
+                    type: 'FeatureCollection',
+                    features: features
+                };
+            },
+            
+            /**
+             * Create buffer zones around features with optimization
+             * @param {Object} geoJSON - Input GeoJSON FeatureCollection
+             * @param {number} bufferDistance - Buffer radius in meters
+             * @param {string} mode - Processing mode (fast/balanced/accurate)
+             * @param {Function} progressCallback - Progress update callback
+             * @returns {Promise<Object>} Merged buffer polygon
+             * 
+             * Algorithm:
+             * 1. Create individual buffers around each feature
+             * 2. Merge overlapping buffers using union operations
+             * 3. Simplify geometry based on mode for performance
+             * 
+             * Performance optimizations:
+             * - Process in chunks to prevent UI blocking
+             * - Simplify geometries in fast mode
+             * - Progressive union instead of single massive operation
+             * - Async breaks to maintain UI responsiveness
+             */
+            async createBuffersOptimized(geoJSON, bufferDistance, mode = 'balanced', progressCallback) {
+                Logger.group('Creating Optimized Buffers');
+                Logger.log('Buffer distance:', bufferDistance);
+                Logger.log('Mode:', mode);
+                Logger.log('Total features to buffer:', geoJSON.features.length);
+                
+                // Get simplification tolerance based on mode
+                const tolerance = Config.processing.simplifyTolerance[mode];
+                // Larger chunks in fast mode for speed
+                const chunkSize = mode === 'fast' ? 100 : Config.processing.chunkSize;
+                
+                const buffers = [];
+                const features = geoJSON.features;
+                
+                // Process features in chunks to avoid blocking
+                for (let i = 0; i < features.length; i += chunkSize) {
+                    const chunk = features.slice(i, Math.min(i + chunkSize, features.length));
+                    Logger.log(`Processing chunk ${Math.floor(i/chunkSize) + 1}/${Math.ceil(features.length/chunkSize)}`);
+                    
+                    // Create buffers for this chunk
+                    const chunkBuffers = chunk.map(feature => {
+                        try {
+                            let processedFeature = feature;
+                            
+                            // Simplify complex geometries in fast mode
+                            if (mode === 'fast' && feature.geometry.type !== 'Point') {
+                                processedFeature = turf.simplify(feature, {tolerance: tolerance});
+                            }
+                            
+                            // Create buffer using Turf.js
+                            // Buffer creates a polygon at specified distance from feature
+                            return turf.buffer(processedFeature, bufferDistance, { units: 'meters' });
+                        } catch (e) {
+                            Logger.warn('Error creating buffer for feature:', e.message);
+                            return null;
+                        }
+                    }).filter(f => f !== null); // Remove failed buffers
+                    
+                    buffers.push(...chunkBuffers);
+                    
+                    // Update progress UI
+                    if (progressCallback) {
+                        const progress = Math.min(100, Math.round((i + chunk.length) / features.length * 50));
+                        progressCallback(progress, `Buffering: ${i + chunk.length}/${features.length} features`);
+                    }
+                    
+                    // Yield to browser for UI updates
+                    await new Promise(resolve => setTimeout(resolve, 10));
+                }
+                
+                Logger.log('Created individual buffers:', buffers.length);
+                
+                if (buffers.length === 0) {
+                    Logger.warn('No buffers created');
+                    Logger.groupEnd('Creating Optimized Buffers');
+                    return null;
+                }
+                
+                // Merge overlapping buffers using union operations
+                Logger.log('Starting buffer union operation...');
+                let merged = null;
+                
+                if (mode === 'fast') {
+                    // Fast mode: Union subset for speed
+                    // Only process first 20 buffers to avoid complexity
+                    Logger.log('Using fast union method');
+                    try {
+                        // Turf.union can handle multiple features at once
+                        merged = turf.union(...buffers.slice(0, Math.min(buffers.length, 20)));
+                        if (buffers.length > 20) {
+                            Logger.warn(`Fast mode: Only processed first 20 buffers out of ${buffers.length}`);
+                        }
+                    } catch (e) {
+                        Logger.error('Fast union failed', e);
+                        merged = buffers[0]; // Fallback to first buffer
+                    }
+                } else {
+                    // Balanced/Accurate mode: Progressive union
+                    // Union buffers one by one for accuracy
+                    Logger.log('Using progressive union method');
+                    merged = buffers[0];
+                    
+                    for (let i = 1; i < buffers.length; i++) {
+                        try {
+                            // Union current merged shape with next buffer
+                            merged = turf.union(merged, buffers[i]);
+                            
+                            // Progress updates every 10 unions
+                            if (progressCallback && i % 10 === 0) {
+                                const progress = 50 + Math.round(i / buffers.length * 30);
+                                progressCallback(progress, `Merging: ${i}/${buffers.length} buffers`);
+                            }
+                            
+                            // Yield periodically for UI
+                            if (i % 20 === 0) {
+                                await new Promise(resolve => setTimeout(resolve, 10));
+                            }
+                        } catch (e) {
+                            Logger.warn(`Error merging buffer ${i}:`, e.message);
+                            // Continue with remaining buffers
+                        }
+                    }
+                }
+                
+                // Simplify final geometry for performance
+                if (merged && mode !== 'accurate') {
+                    Logger.log('Simplifying final geometry...');
+                    try {
+                        // More aggressive simplification for final result
+                        merged = turf.simplify(merged, {tolerance: tolerance * 10});
+                    } catch (e) {
+                        Logger.warn('Could not simplify final geometry:', e.message);
+                    }
+                }
+                
+                Logger.log('Buffer union complete');
+                Logger.groupEnd('Creating Optimized Buffers');
+                
+                return merged;
+            },
+            
+            /**
+             * Calculate eligible zones by subtracting restricted areas from map bounds
+             * @param {L.LatLngBounds} mapBounds - Current map viewport
+             * @param {Object} restrictedZones - Merged buffer polygon
+             * @param {string} mode - Processing mode
+             * @param {Function} progressCallback - Progress callback
+             * @returns {Object} GeoJSON polygon of eligible areas
+             * 
+             * Uses boolean difference operation:
+             * Eligible = MapBounds - RestrictedZones
+             * 
+             * This is computationally expensive for complex geometries,
+             * so fast mode uses bounding box approximation.
+             */
+            calculateEligibleZonesOptimized(mapBounds, restrictedZones, mode = 'balanced', progressCallback) {
+                Logger.group('Calculating Eligible Zones');
+                Logger.log('Mode:', mode);
+                
+                // Create polygon covering entire visible map area
+                const boundsPolygon = turf.bboxPolygon([
+                    mapBounds.getWest(),  // min longitude
+                    mapBounds.getSouth(), // min latitude
+                    mapBounds.getEast(),  // max longitude
+                    mapBounds.getNorth()  // max latitude
+                ]);
+                
+                Logger.log('Map bounds polygon created');
+                
+                // If no restricted zones, entire area is eligible
+                if (!restrictedZones) {
+                    Logger.log('No restricted zones, entire area is eligible');
+                    Logger.groupEnd('Calculating Eligible Zones');
+                    return boundsPolygon;
+                }
+                
+                try {
+                    if (progressCallback) {
+                        progressCallback(85, 'Calculating eligible areas...');
+                    }
+                    
+                    let eligible = null;
+                    
+                    if (mode === 'fast') {
+                        // Fast approximation using bounding box
+                        // Less accurate but much faster
+                        Logger.log('Using fast approximation method');
+                        const bbox = turf.bbox(restrictedZones);
+                        const restrictedBbox = turf.bboxPolygon(bbox);
+                        eligible = turf.difference(boundsPolygon, restrictedBbox);
+                    } else {
+                        // Full boolean difference calculation
+                        // Accurate but computationally intensive
+                        Logger.log('Using full difference calculation');
+                        eligible = turf.difference(boundsPolygon, restrictedZones);
+                    }
+                    
+                    if (progressCallback) {
+                        progressCallback(95, 'Finalizing zones...');
+                    }
+                    
+                    Logger.log('Eligible zones calculated successfully');
+                    Logger.groupEnd('Calculating Eligible Zones');
+                    return eligible;
+                } catch (e) {
+                    Logger.error('Error calculating eligible zones', e);
+                    Logger.groupEnd('Calculating Eligible Zones');
+                    // Return full bounds as fallback
+                    return boundsPolygon;
+                }
+            }
+        };
+
+        /**
+         * ============================================================================
+         * UI CONTROLLER MODULE
+         * ============================================================================
+         * Manages user interface interactions and coordinates between modules.
+         * Handles button clicks, progress updates, and status displays.
+         * Acts as the main orchestrator for user-initiated operations.
+         */
+        const UIController = {
+            /**
+             * DOM element references for efficient access
+             */
+            elements: {
+                fetchButton: document.getElementById('fetch-data'),
+                calculateButton: document.getElementById('calculate-zones'),
+                clearButton: document.getElementById('clear-all'),
+                bufferInput: document.getElementById('buffer-distance'),
+                modeSelect: document.getElementById('calculation-mode'),
+                status: document.getElementById('status'),
+                progressBar: document.getElementById('progress-bar'),
+                progressFill: document.getElementById('progress-fill'),
+                stats: document.getElementById('stats')
+            },
+            
+            /**
+             * Initialize event listeners
+             */
+            init() {
+                // Bind button click events to handler methods
+                this.elements.fetchButton.addEventListener('click', () => this.handleFetchData());
+                this.elements.calculateButton.addEventListener('click', () => this.handleCalculateZones());
+                this.elements.clearButton.addEventListener('click', () => this.handleClearAll());
+                Logger.log('UI Controller initialized');
+            },
+            
+            /**
+             * Update status message with error styling option
+             * @param {string} message - Status message
+             * @param {boolean} isError - Whether to show error styling
+             */
+            updateStatus(message, isError = false) {
+                this.elements.status.textContent = message;
+                this.elements.status.style.background = isError ? '#ffebee' : '#f0f0f0';
+                this.elements.status.style.color = isError ? '#c62828' : '#333';
+                Logger.log(`Status: ${message}`);
+            },
+            
+            /**
+             * Update progress bar
+             * @param {number} percent - Progress percentage (0-100)
+             * @param {string} message - Optional progress message
+             */
+            updateProgress(percent, message = '') {
+                this.elements.progressBar.style.display = 'block';
+                this.elements.progressFill.style.width = `${percent}%`;
+                this.elements.progressFill.textContent = message || `${percent}%`;
+            },
+            
+            /**
+             * Hide progress bar
+             */
+            hideProgress() {
+                this.elements.progressBar.style.display = 'none';
+            },
+            
+            /**
+             * Display processing statistics
+             * @param {Object} stats - Statistics object
+             */
+            updateStats(stats) {
+                this.elements.stats.style.display = 'block';
+                this.elements.stats.innerHTML = `
+                    <strong>Statistics:</strong><br>
+                    Features processed: ${stats.features || 0}<br>
+                    Processing time: ${stats.time || 0}ms<br>
+                    Mode: ${stats.mode || 'N/A'}
+                `;
+            },
+            
+            /**
+             * Handle fetching restricted locations from OSM
+             * Workflow:
+             * 1. Get current map bounds
+             * 2. Query Overpass API for sensitive locations
+             * 3. Convert OSM data to GeoJSON
+             * 4. Display on map as blue markers
+             * 5. Enable zone calculation
+             */
+            async handleFetchData() {
+                Logger.group('Handle Fetch Data');
+                this.elements.fetchButton.disabled = true;
+                this.updateStatus('Loading restricted locations...');
+                this.updateProgress(0, 'Fetching data...');
+                
+                const startTime = performance.now();
+                
+                try {
+                    // Get current visible map area
+                    const bounds = MapModule.map.getBounds();
+                    this.updateProgress(30, 'Querying OpenStreetMap...');
+                    
+                    // Fetch OSM data for current viewport
+                    const osmData = await DataFetcher.fetchRestrictedLocations(bounds);
+                    
+                    // Store for later processing
+                    // Using global variable for simplicity (consider using proper state management)
+                    window.restrictedLocationsData = osmData;
+                    
+                    this.updateProgress(60, 'Converting data...');
+                    
+                    // Convert OSM format to GeoJSON
+                    const geoJSON = GeometryProcessor.osmToGeoJSON(osmData);
+                    
+                    this.updateProgress(90, 'Rendering on map...');
+                    
+                    // Clear previous sensitive locations and add new ones
+                    MapModule.clearLayer('sensitive');
+                    MapModule.addToLayer('sensitive', geoJSON, Config.styles.sensitiveLocation);
+                    
+                    const elapsed = (performance.now() - startTime).toFixed(0);
+                    
+                    // Update UI with results
+                    this.updateStatus(`Loaded ${geoJSON.features.length} restricted locations`);
+                    this.updateStats({
+                        features: geoJSON.features.length,
+                        time: elapsed,
+                        mode: 'Fetch'
+                    });
+                    
+                    // Enable calculate button now that we have data
+                    this.elements.calculateButton.disabled = false;
+                    this.updateProgress(100, 'Complete!');
+                    setTimeout(() => this.hideProgress(), 1000);
+                    
+                } catch (error) {
+                    this.updateStatus('Error loading data. Please try again.', true);
+                    Logger.error('Fetch error', error);
+                    this.hideProgress();
+                } finally {
+                    this.elements.fetchButton.disabled = false;
+                    Logger.groupEnd('Handle Fetch Data');
+                }
+            },
+            
+            /**
+             * Handle zone calculation
+             * Workflow:
+             * 1. Create buffers around sensitive locations
+             * 2. Merge overlapping buffers
+             * 3. Calculate eligible areas (inverse of buffers)
+             * 4. Display results on map
+             * 
+             * This is the most computationally intensive operation
+             */
+            async handleCalculateZones() {
+                // Validate that we have data to process
+                if (!window.restrictedLocationsData) {
+                    this.updateStatus('Please load restricted locations first', true);
+                    return;
+                }
+                
+                Logger.group('Handle Calculate Zones');
+                
+                this.elements.calculateButton.disabled = true;
+                this.updateStatus('Calculating zones...');
+                this.updateProgress(0, 'Starting calculation...');
+                
+                const startTime = performance.now();
+                const mode = this.elements.modeSelect.value;
+                
+                try {
+                    // Get buffer distance from user input
+                    const bufferDistance = parseInt(this.elements.bufferInput.value);
+                    Logger.log('Buffer distance:', bufferDistance, 'meters');
+                    Logger.log('Calculation mode:', mode);
+                    
+                    // Convert stored OSM data to GeoJSON
+                    const geoJSON = GeometryProcessor.osmToGeoJSON(window.restrictedLocationsData);
+                    
+                    // Create and merge buffer zones
+                    const bufferZones = await GeometryProcessor.createBuffersOptimized(
+                        geoJSON, 
+                        bufferDistance, 
+                        mode,
+                        (progress, message) => this.updateProgress(progress, message)
+                    );
+                    
+                    if (bufferZones) {
+                        // Clear previous calculated zones
+                        MapModule.clearLayer('restricted');
+                        MapModule.clearLayer('eligible');
+                        
+                        // Display restricted zones (red)
+                        this.updateProgress(80, 'Rendering restricted zones...');
+                        MapModule.addToLayer('restricted', bufferZones, Config.styles.restrictedZone);
+                        
+                        // Calculate eligible zones (green)
+                        const eligibleZones = await GeometryProcessor.calculateEligibleZonesOptimized(
+                            MapModule.map.getBounds(),
+                            bufferZones,
+                            mode,
+                            (progress, message) => this.updateProgress(progress, message)
+                        );
+                        
+                        if (eligibleZones) {
+                            this.updateProgress(98, 'Rendering eligible zones...');
+                            MapModule.addToLayer('eligible', eligibleZones, Config.styles.eligibleZone);
+                        }
+                        
+                        const elapsed = (performance.now() - startTime).toFixed(0);
+                        
+                        // Show completion status
+                        this.updateStatus(`Zones calculated with ${bufferDistance}m buffer`);
+                        this.updateStats({
+                            features: geoJSON.features.length,
+                            time: elapsed,
+                            mode: mode
+                        });
+                        
+                        this.updateProgress(100, 'Complete!');
+                        setTimeout(() => this.hideProgress(), 1000);
+                    } else {
+                        this.updateStatus('No restricted zones found in this area');
+                        this.hideProgress();
+                    }
+                } catch (error) {
+                    this.updateStatus('Error calculating zones', true);
+                    Logger.error('Calculation error', error);
+                    this.hideProgress();
+                } finally {
+                    this.elements.calculateButton.disabled = false;
+                    Logger.groupEnd('Handle Calculate Zones');
+                }
+            },
+            
+            /**
+             * Clear all map data and reset application state
+             */
+            handleClearAll() {
+                Logger.log('Clearing all layers and data');
+                MapModule.clearAllLayers();
+                window.restrictedLocationsData = null;
+                this.elements.calculateButton.disabled = true;
+                this.updateStatus('All data cleared');
+                this.elements.stats.style.display = 'none';
+            }
+        };
+
+        /**
+         * ============================================================================
+         * APPLICATION INITIALIZATION
+         * ============================================================================
+         * Entry point for the application.
+         * Waits for DOM to be fully loaded before initializing modules.
+         * This ensures all HTML elements are available for JavaScript manipulation.
+         */
+        document.addEventListener('DOMContentLoaded', () => {
+            Logger.log('=== Application Starting ===');
+            
+            // Initialize map first (provides the canvas for everything else)
+            MapModule.init();
+            
+            // Initialize UI controller (sets up event handlers)
+            UIController.init();
+            
+            Logger.log('=== Application Ready ===');
+        });
+
+        /**
+         * ============================================================================
+         * TECHNICAL NOTES AND FUTURE IMPROVEMENTS
+         * ============================================================================
+         * 
+         * CURRENT LIMITATIONS:
+         * 1. Overpass API rate limiting - consider caching or local OSM data
+         * 2. Complex geometries can cause performance issues even with optimization
+         * 3. Browser memory limits for large datasets
+         * 4. No persistence - data lost on page reload
+         * 
+         * POTENTIAL IMPROVEMENTS:
+         * 1. Add WebWorker for geometry calculations to prevent UI blocking
+         * 2. Implement tile-based processing for city-wide analysis
+         * 3. Add caching layer for OSM data
+         * 4. Export functionality for calculated zones (GeoJSON, KML)
+         * 5. Add more sensitive location types from OSM
+         * 6. Implement user authentication and save preferences
+         * 7. Add routing to find nearest eligible location
+         * 8. Integrate with official zoning/permit databases
+         * 
+         * ALGORITHM COMPLEXITY:
+         * - Buffer creation: O(n) where n = number of features
+         * - Union operation: O(n log n) for optimal algorithms
+         * - Difference operation: O(nm) where m = complexity of geometries
+         * - Overall: O(n²) worst case for complex overlapping geometries
+         * 
+         * LEGAL DISCLAIMER:
+         * This tool provides approximate visualizations based on OpenStreetMap data.
+         * It should not be used as the sole basis for legal compliance.
+         * Always consult official regulations and local authorities.
+         * 
+         * ============================================================================
+         */
+    </script>
+</body>
+</html>
