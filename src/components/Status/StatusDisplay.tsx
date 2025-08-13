@@ -26,16 +26,16 @@ export function StatusDisplay() {
     }
   };
 
-  return (
-    <div 
-      className="status" 
-      id="status"
-      style={{
-        background: getBackgroundColor(),
-        color: getTextColor()
-      }}
-    >
-      {state.ui.status}
-    </div>
+  return (<></>
+    // <div 
+    //   className="status" 
+    //   id="status"
+    //   style={{
+    //     background: getBackgroundColor(),
+    //     color: getTextColor()
+    //   }}
+    // >
+    //   {state.ui.status}
+    // </div>
   );
 }

@@ -119,7 +119,7 @@ export function ActionButtons() {
     });
     dispatch({ 
       type: 'SET_PROGRESS', 
-      payload: { progress: 0, message: 'Initializing...' } 
+      payload: { progress: 0, message: 'Loading...' } 
     });
 
     const startTime = performance.now();
@@ -129,13 +129,13 @@ export function ActionButtons() {
       if (isDuckDBReady && !forceRefresh) {
         dispatch({ 
           type: 'SET_PROGRESS', 
-          payload: { progress: 10, message: 'Checking for optimized database...' } 
+          payload: { progress: 0, message: 'Loading...' } 
         });
 
-        const parquetResult = await duckdbSpatial.loadFromParquet((message) => {
+        const parquetResult = await duckdbSpatial.loadFromParquet(() => {
           dispatch({ 
             type: 'SET_PROGRESS', 
-            payload: { progress: 50, message } 
+            payload: { progress: 0, message: 'Loading...' } 
           });
         });
 
@@ -147,7 +147,7 @@ export function ActionButtons() {
           dispatch({ 
             type: 'SET_STATUS', 
             payload: { 
-              message: `Loaded ${locationCount} locations from optimized database`, 
+              message: `Found ${locationCount} schools, playgrounds and community centers`, 
               type: 'success' 
             } 
           });
@@ -163,7 +163,7 @@ export function ActionButtons() {
 
           dispatch({ 
             type: 'SET_PROGRESS', 
-            payload: { progress: 100, message: 'Complete!' } 
+            payload: { progress: 0, message: '' } 
           });
 
           setCanCalculate(true);
@@ -188,7 +188,7 @@ export function ActionButtons() {
       Logger.log('❌ setIsLoadedFromParquet(false) - Loading from OSM API');
       dispatch({ 
         type: 'SET_PROGRESS', 
-        payload: { progress: 30, message: forceRefresh ? 'Force refreshing from OpenStreetMap...' : 'Querying OpenStreetMap...' } 
+        payload: { progress: 0, message: 'Loading...' } 
       });
 
       const osmData = await overpassApi.fetchRestrictedLocations(state.map.bounds, forceRefresh);
@@ -196,7 +196,7 @@ export function ActionButtons() {
 
       dispatch({ 
         type: 'SET_PROGRESS', 
-        payload: { progress: 60, message: 'Processing data...' } 
+        payload: { progress: 0, message: 'Loading...' } 
       });
 
       // Load data into DuckDB for spatial processing
@@ -209,7 +209,7 @@ export function ActionButtons() {
         await duckdbSpatial.loadOSMData(osmData, (message) => {
           dispatch({ 
             type: 'SET_PROGRESS', 
-            payload: { progress: 70, message } 
+            payload: { progress: 0, message: 'Loading...' } 
           });
         });
         Logger.log('Data loaded into DuckDB for spatial processing');
@@ -217,7 +217,7 @@ export function ActionButtons() {
 
       dispatch({ 
         type: 'SET_PROGRESS', 
-        payload: { progress: 90, message: 'Rendering on map...' } 
+        payload: { progress: 0, message: 'Loading...' } 
       });
 
       const elapsed = (performance.now() - startTime).toFixed(0);
@@ -225,7 +225,7 @@ export function ActionButtons() {
       dispatch({ 
         type: 'SET_STATUS', 
         payload: { 
-          message: `Loaded ${osmData.elements.length} restricted locations from OpenStreetMap`, 
+          message: `Found ${osmData.elements.length} schools, playgrounds and community centers`, 
           type: 'success' 
         } 
       });
@@ -241,7 +241,7 @@ export function ActionButtons() {
 
       dispatch({ 
         type: 'SET_PROGRESS', 
-        payload: { progress: 100, message: 'Complete!' } 
+        payload: { progress: 0, message: '' } 
       });
 
       setCanCalculate(true);
@@ -305,10 +305,12 @@ export function ActionButtons() {
     // Check minimum zoom level to prevent timeouts on large areas
     const minZoomForCalculation = 15; // Requires 2 zoom-ins from default level 13 (13 + 2)
     if (currentState.map.zoom < minZoomForCalculation) {
+      const zoomsNeeded = minZoomForCalculation - currentState.map.zoom;
+      const zoomText = zoomsNeeded === 1 ? 'one more time' : `${zoomsNeeded} more times`;
       dispatch({ 
         type: 'SET_STATUS', 
         payload: { 
-          message: `Please zoom in further (minimum zoom level ${minZoomForCalculation} required for calculations)`, 
+          message: `Please zoom in ${zoomText} to see available locations`, 
           type: 'warning' 
         } 
       });
@@ -348,7 +350,7 @@ export function ActionButtons() {
     });
     dispatch({ 
       type: 'SET_PROGRESS', 
-      payload: { progress: 0, message: 'Starting calculation...' } 
+      payload: { progress: 0, message: 'Calculating...' } 
     });
 
     const startTime = performance.now();
@@ -392,7 +394,7 @@ export function ActionButtons() {
         dispatch({ 
           type: 'SET_STATUS', 
           payload: { 
-            message: `Zones calculated with ${currentState.processing.bufferDistance}m buffer (DuckDB)`, 
+            message: 'Found suitable locations for cannabis clubs', 
             type: 'success' 
           } 
         });
@@ -402,13 +404,13 @@ export function ActionButtons() {
           payload: {
             features: featureCount,
             time: parseInt(elapsed),
-            mode: `${currentState.processing.mode} (DuckDB)`
+            mode: 'Safe locations found'
           } 
         });
 
         dispatch({ 
           type: 'SET_PROGRESS', 
-          payload: { progress: 100, message: 'Complete!' } 
+          payload: { progress: 0, message: '' } 
         });
 
         setTimeout(() => {
@@ -607,15 +609,52 @@ export function ActionButtons() {
         </div>
       )}
       
-      <div className="control-group">
-        <button
-          id="fetch-data"
-          onClick={() => handleFetchData(false)}
-          disabled={state.processing.isLoading}
-        >
-          Load Restricted Locations
-        </button>
-      </div>
+      {/* Manual control buttons - only in debug mode */}
+      {DEBUG_MODE && (
+        <div className="control-group">
+          <button
+            id="fetch-data"
+            onClick={() => handleFetchData(false)}
+            disabled={state.processing.isLoading}
+          >
+            Load Restricted Locations
+          </button>
+        </div>
+      )}
+      
+      {/* User-friendly status for non-debug mode */}
+      {!DEBUG_MODE && (
+        <div className="control-group" style={{
+          background: '#f8f9fa',
+          padding: '12px',
+          borderRadius: '6px',
+          border: '1px solid #e9ecef',
+          textAlign: 'center'
+        }}>
+          {!isDuckDBReady ? (
+            <div style={{ color: '#6c757d', fontSize: '14px' }}>
+              🔄 Getting things ready...
+            </div>
+          ) : !dataLoadedRef.current ? (
+            <div style={{ color: '#0056b3', fontSize: '14px' }}>
+              📍 Finding schools, playgrounds and community centers...
+            </div>
+          ) : state.map.zoom < 15 ? (
+            <div style={{ color: '#856404', fontSize: '14px' }}>
+              🔍 Zoom in 2 more times to see available locations<br/>
+              <small style={{ color: '#6c757d' }}>(Need closer view to show detailed results)</small>
+            </div>
+          ) : state.processing.isLoading ? (
+            <div style={{ color: '#28a745', fontSize: '14px' }}>
+              ⚙️ Finding suitable locations for cannabis clubs...
+            </div>
+          ) : (
+            <div style={{ color: '#28a745', fontSize: '14px' }}>
+              ✅ Ready! Move around the map to explore different areas.
+            </div>
+          )}
+        </div>
+      )}
       
       {/* Fresh data button - only in debug mode when loaded from Parquet */}
       {DEBUG_MODE && isLoadedFromParquet && (
@@ -655,22 +694,25 @@ export function ActionButtons() {
         </div>
       )}
       
-      <div className="control-group">
-        <button
-          id="calculate-zones"
-          onClick={handleCalculateZones}
-          disabled={state.processing.isLoading || !canCalculate || state.map.zoom < 15}
-          title={
-            state.map.zoom < 15 
-              ? `Please zoom in further (minimum zoom level 15 required, current: ${state.map.zoom})`
-              : !canCalculate
-              ? 'Please load restricted locations first'
-              : 'Calculate zones for cannabis clubs'
-          }
-        >
-          Calculate Eligible Zones
-        </button>
-      </div>
+      {/* Manual calculate button - only in debug mode */}
+      {DEBUG_MODE && (
+        <div className="control-group">
+          <button
+            id="calculate-zones"
+            onClick={handleCalculateZones}
+            disabled={state.processing.isLoading || !canCalculate || state.map.zoom < 15}
+            title={
+              state.map.zoom < 15 
+                ? `Please zoom in ${15 - state.map.zoom === 1 ? 'one more time' : `${15 - state.map.zoom} more times`} to see detailed results`
+                : !canCalculate
+                ? 'Please wait while we find schools and playgrounds'
+                : 'Find suitable locations for cannabis clubs'
+            }
+          >
+            Calculate Eligible Zones
+          </button>
+        </div>
+      )}
       
       {/* Auto-recalculate toggle - only in debug mode */}
       {DEBUG_MODE && (
@@ -692,13 +734,22 @@ export function ActionButtons() {
         </div>
       )}
       
+      {/* Clear All - show compact version for users, full version for debug */}
       <div className="control-group">
         <button
           id="clear-all"
           onClick={handleClearAll}
           disabled={state.processing.isLoading}
+          style={{
+            ...(DEBUG_MODE ? {} : {
+              fontSize: '12px',
+              padding: '6px 12px',
+              background: '#6c757d',
+              color: 'white'
+            })
+          }}
         >
-          Clear All
+          {DEBUG_MODE ? 'Clear All' : '🔄 Reset'}
         </button>
       </div>
       
