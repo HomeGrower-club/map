@@ -5,7 +5,8 @@ import { DEBUG_MODE } from '../../utils/debugMode';
 export function Statistics() {
   const { state } = useApp();
 
-  if (!state.ui.stats) {
+  // Only show statistics in debug mode
+  if (!DEBUG_MODE || !state.ui.stats) {
     return null;
   }
 
