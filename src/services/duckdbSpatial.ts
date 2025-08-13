@@ -73,6 +73,9 @@ export class DuckDBSpatialService {
       await this.conn.query(`INSTALL spatial`);
       await this.conn.query(`LOAD spatial`);
 
+      // Configure DuckDB for optimal spatial performance
+      await this.configureDuckDB();
+
       // Check for ST_MakeValid availability
       await this.checkSpatialCapabilities();
 
@@ -86,6 +89,33 @@ export class DuckDBSpatialService {
       Logger.error('Failed to initialize DuckDB', error);
       Logger.groupEnd('Initializing DuckDB WASM');
       throw error;
+    }
+  }
+
+  /**
+   * Configure DuckDB for optimal spatial performance
+   */
+  private async configureDuckDB(): Promise<void> {
+    if (!this.conn) return;
+
+    Logger.log('Configuring DuckDB for optimal performance...');
+
+    try {
+      // Set memory limit (use more memory for better performance)
+      await this.conn.query(`SET memory_limit = '1GB'`);
+      
+      // Enable parallel execution
+      await this.conn.query(`SET threads = 4`);
+      
+      // Enable progress bar for long-running queries
+      await this.conn.query(`SET enable_progress_bar = true`);
+      
+      // Optimize for spatial queries
+      await this.conn.query(`SET enable_object_cache = true`);
+      
+      Logger.log('DuckDB configuration optimized');
+    } catch (error) {
+      Logger.warn('Some DuckDB configuration options may not be available:', error);
     }
   }
 
@@ -194,14 +224,14 @@ export class DuckDBSpatialService {
   }
 
   /**
-   * Create database schema for spatial data
+   * Create database schema for spatial data with optimizations
    */
   private async createSchema(): Promise<void> {
     if (!this.conn) throw new Error('Database not initialized');
 
-    Logger.log('Creating database schema');
+    Logger.log('Creating database schema with optimizations');
 
-    // Create table for sensitive locations
+    // Create main table for sensitive locations
     await this.conn.query(`
       CREATE TABLE IF NOT EXISTS sensitive_locations (
         id INTEGER PRIMARY KEY,
@@ -209,17 +239,57 @@ export class DuckDBSpatialService {
         name VARCHAR,
         type VARCHAR,
         tags JSON,
-        geometry GEOMETRY
+        geometry GEOMETRY,
+        -- Simplified geometry for faster operations
+        geometry_simple GEOMETRY,
+        -- Bounding box columns for efficient filtering
+        bbox_minx DOUBLE,
+        bbox_miny DOUBLE,
+        bbox_maxx DOUBLE,
+        bbox_maxy DOUBLE,
+        -- Grid cell indexes for spatial partitioning
+        grid_x INTEGER,
+        grid_y INTEGER
       )
     `);
 
-    // Create spatial index
+    // Create R-tree spatial index on main geometry
     await this.conn.query(`
       CREATE INDEX IF NOT EXISTS idx_sensitive_geometry 
       ON sensitive_locations USING RTREE (geometry)
     `);
 
-    Logger.log('Schema created successfully');
+    // Create R-tree index on simplified geometry
+    await this.conn.query(`
+      CREATE INDEX IF NOT EXISTS idx_sensitive_geometry_simple
+      ON sensitive_locations USING RTREE (geometry_simple)
+    `);
+
+    // Create composite index on bounding box columns
+    await this.conn.query(`
+      CREATE INDEX IF NOT EXISTS idx_sensitive_bbox
+      ON sensitive_locations (bbox_minx, bbox_miny, bbox_maxx, bbox_maxy)
+    `);
+
+    // Create index on grid cells for spatial partitioning
+    await this.conn.query(`
+      CREATE INDEX IF NOT EXISTS idx_sensitive_grid
+      ON sensitive_locations (grid_x, grid_y)
+    `);
+
+    // Create index on type for filtered queries
+    await this.conn.query(`
+      CREATE INDEX IF NOT EXISTS idx_sensitive_type
+      ON sensitive_locations (type)
+    `);
+
+    // Create index on name for search queries
+    await this.conn.query(`
+      CREATE INDEX IF NOT EXISTS idx_sensitive_name
+      ON sensitive_locations (name)
+    `);
+
+    Logger.log('Schema and indexes created successfully');
   }
 
   /**
@@ -240,7 +310,14 @@ export class DuckDBSpatialService {
 
     // Create a map of nodes for way resolution
     const nodes = new Map<number, [number, number]>();
-    const insertData: any[] = [];
+    const insertData: Array<{
+      id: number;
+      osm_id: number;
+      name: string | null;
+      type: string;
+      tags: string;
+      geometry: string;
+    }> = [];
     let id = 1;
 
     // First pass: collect all nodes
@@ -260,7 +337,7 @@ export class DuckDBSpatialService {
             id: id++,
             osm_id: node.id,
             name: node.tags?.name || null,
-            type: this.getLocationType(node.tags),
+            type: this.getLocationType(node.tags || {}),
             tags: JSON.stringify(node.tags),
             geometry: `POINT(${node.lon} ${node.lat})`
           });
@@ -285,7 +362,7 @@ export class DuckDBSpatialService {
               id: id++,
               osm_id: way.id,
               name: way.tags?.name || null,
-              type: this.getLocationType(way.tags),
+              type: this.getLocationType(way.tags || {}),
               tags: JSON.stringify(way.tags),
               geometry: geometry
             });
@@ -300,7 +377,7 @@ export class DuckDBSpatialService {
     if (insertData.length > 0) {
       Logger.log(`Inserting ${insertData.length} locations into database using batch insert`);
       
-      const BATCH_SIZE = 5000; // Insert 500 rows at a time
+      const BATCH_SIZE = 5000; // Insert 5000 rows at a time
       const batches = Math.ceil(insertData.length / BATCH_SIZE);
       
       for (let i = 0; i < batches; i++) {
@@ -314,17 +391,30 @@ export class DuckDBSpatialService {
         }
         
         try {
-          // Build a multi-row INSERT statement
+          // Build a multi-row INSERT statement with computed columns
           const values = batch.map(row => {
             const name = row.name ? `'${row.name.replace(/'/g, "''")}'` : 'NULL';
             const tags = `'${row.tags.replace(/'/g, "''")}'`;
             const geometry = `ST_GeomFromText('${row.geometry}')`;
             
-            return `(${row.id}, ${row.osm_id}, ${name}, '${row.type}', ${tags}, ${geometry})`;
+            // All computed values are done in SQL for efficiency
+            return `(${row.id}, ${row.osm_id}, ${name}, '${row.type}', ${tags}, ${geometry},
+              ST_Simplify(${geometry}, 0.0001), -- simplified geometry
+              ST_XMin(${geometry}), -- bbox_minx
+              ST_YMin(${geometry}), -- bbox_miny
+              ST_XMax(${geometry}), -- bbox_maxx
+              ST_YMax(${geometry}), -- bbox_maxy
+              CAST(FLOOR(ST_X(ST_Centroid(${geometry})) / 0.01) AS INTEGER), -- grid_x (0.01 degree cells)
+              CAST(FLOOR(ST_Y(ST_Centroid(${geometry})) / 0.01) AS INTEGER)  -- grid_y
+            )`;
           }).join(',\n');
           
           const query = `
-            INSERT INTO sensitive_locations (id, osm_id, name, type, tags, geometry)
+            INSERT INTO sensitive_locations (
+              id, osm_id, name, type, tags, geometry,
+              geometry_simple, bbox_minx, bbox_miny, bbox_maxx, bbox_maxy,
+              grid_x, grid_y
+            )
             VALUES ${values}
           `;
           
@@ -338,15 +428,27 @@ export class DuckDBSpatialService {
           Logger.log('Falling back to individual inserts for failed batch...');
           for (const row of batch) {
             try {
+              const geom = `ST_GeomFromText('${row.geometry}')`;
               const query = `
-                INSERT INTO sensitive_locations (id, osm_id, name, type, tags, geometry)
+                INSERT INTO sensitive_locations (
+                  id, osm_id, name, type, tags, geometry,
+                  geometry_simple, bbox_minx, bbox_miny, bbox_maxx, bbox_maxy,
+                  grid_x, grid_y
+                )
                 VALUES (
                   ${row.id},
                   ${row.osm_id},
                   ${row.name ? `'${row.name.replace(/'/g, "''")}'` : 'NULL'},
                   '${row.type}',
                   '${row.tags.replace(/'/g, "''")}',
-                  ST_GeomFromText('${row.geometry}')
+                  ${geom},
+                  ST_Simplify(${geom}, 0.0001),
+                  ST_XMin(${geom}),
+                  ST_YMin(${geom}),
+                  ST_XMax(${geom}),
+                  ST_YMax(${geom}),
+                  CAST(FLOOR(ST_X(ST_Centroid(${geom})) / 0.01) AS INTEGER),
+                  CAST(FLOOR(ST_Y(ST_Centroid(${geom})) / 0.01) AS INTEGER)
                 )
               `;
               await this.conn.query(query);
@@ -357,6 +459,9 @@ export class DuckDBSpatialService {
         }
       }
     }
+
+    // After loading, update statistics for query optimization
+    await this.conn.query(`ANALYZE sensitive_locations`);
 
     // Verify data loaded
     const countResult = await this.conn.query(`SELECT COUNT(*) as count FROM sensitive_locations`);
@@ -379,7 +484,8 @@ export class DuckDBSpatialService {
   }
 
   /**
-   * Calculate buffer zones and eligible areas using spatial SQL
+   * Calculate buffer zones and eligible areas using optimized spatial SQL
+   * All calculations done in a single efficient query
    */
   async calculateZones(
     bufferDistance: number,
@@ -394,7 +500,7 @@ export class DuckDBSpatialService {
   }> {
     if (!this.conn) throw new Error('Database not initialized');
 
-    Logger.group('Calculating zones with DuckDB');
+    Logger.group('Calculating zones with DuckDB (Optimized)');
     Logger.log('Buffer distance:', bufferDistance);
     Logger.log('Mode:', mode);
 
@@ -402,84 +508,115 @@ export class DuckDBSpatialService {
 
     try {
       // Create bounding box
-      const bbox = [
-        mapBounds.getWest(),
-        mapBounds.getSouth(),
-        mapBounds.getEast(),
-        mapBounds.getNorth()
-      ];
+      const bbox = {
+        west: mapBounds.getWest(),
+        south: mapBounds.getSouth(),
+        east: mapBounds.getEast(),
+        north: mapBounds.getNorth()
+      };
 
       if (progressCallback) {
-        progressCallback(10, 'Creating buffer zones...');
+        progressCallback(10, 'Preparing optimized spatial query...');
       }
 
-      // Get simplification factor based on mode
+      // Get simplification factor and choose geometry column based on mode
+      const useSimplified = mode === 'fast' || mode === 'balanced';
+      const geometryColumn = useSimplified ? 'geometry_simple' : 'geometry';
       const simplifyFactor = mode === 'fast' ? 0.001 : mode === 'balanced' ? 0.0001 : 0;
 
-      // Convert buffer distance from meters to degrees (approximate)
-      // At Berlin's latitude (~52.5°), 1 degree latitude ≈ 111km
-      // For longitude, we need to account for latitude: 1 degree ≈ 111km * cos(latitude)
-      // At 52.5°: 1 degree longitude ≈ 67.5km
-      // Using latitude degrees for simplicity since buffer should be circular
-      // 200m ≈ 0.0018 degrees
-      const bufferInDegrees = bufferDistance / 111000; // meters to degrees at this latitude
+      // Convert buffer distance from meters to degrees
+      const bufferInDegrees = bufferDistance / 111000;
+      Logger.log(`Buffer: ${bufferDistance}m = ~${bufferInDegrees.toFixed(6)}°`);
 
-      Logger.log(`Buffer distance: ${bufferDistance}m = ~${bufferInDegrees.toFixed(6)} degrees`);
-
-      // Prepare geometry repair functions based on capabilities
-      let geometryRepairSQL = 'geometry';
-      if (this.spatialCapabilities.hasMakeValid) {
-        geometryRepairSQL = 'ST_MakeValid(geometry)';
-      } else if (this.spatialCapabilities.hasReducePrecision) {
-        geometryRepairSQL = 'ST_ReducePrecision(geometry, 0.000001)';
-      }
-
-      // Calculate buffer zones with geometry repair and optional simplification
-      // Only process locations within the current viewport for efficiency
-      let bufferQuery = `
-        WITH valid_locations AS (
-          SELECT 
-            id, osm_id, name, type, tags,
-            ${geometryRepairSQL} as geometry
-          FROM sensitive_locations
-          WHERE ST_Intersects(
-            geometry,
-            ST_MakeEnvelope(${bbox[0]}, ${bbox[1]}, ${bbox[2]}, ${bbox[3]})
-          )
-        ),
-        buffered_locations AS (
-          SELECT ST_Buffer(geometry, ${bufferInDegrees}) as buffer_geom
-          FROM valid_locations
-          WHERE ST_IsValid(geometry)
-        ),
-        unified_buffer AS (
-          SELECT ST_Union_Agg(buffer_geom) as restricted_area
-          FROM buffered_locations
-        )
-      `;
-
-      if (simplifyFactor > 0) {
-        bufferQuery += `
-          SELECT ST_AsGeoJSON(ST_Simplify(restricted_area, ${simplifyFactor})) as geojson
-          FROM unified_buffer
-        `;
-      } else {
-        bufferQuery += `
-          SELECT ST_AsGeoJSON(restricted_area) as geojson
-          FROM unified_buffer
-        `;
-      }
+      // Calculate grid cells that intersect with viewport for efficient filtering
+      const gridMinX = Math.floor(bbox.west / 0.01);
+      const gridMaxX = Math.ceil(bbox.east / 0.01);
+      const gridMinY = Math.floor(bbox.south / 0.01);
+      const gridMaxY = Math.ceil(bbox.north / 0.01);
 
       if (progressCallback) {
-        progressCallback(40, 'Merging buffer zones...');
+        progressCallback(20, 'Executing optimized zone calculation...');
       }
 
-      const bufferResult = await this.conn.query(bufferQuery);
-      const bufferData = bufferResult.toArray()[0];
-      
+      // Single optimized query that calculates both restricted and eligible zones
+      // Uses all our optimization techniques:
+      // 1. Grid cell pre-filtering
+      // 2. Bounding box pre-filtering (uses indexes)
+      // 3. Simplified geometry for fast mode
+      // 4. Single pass calculation
+      const optimizedQuery = `
+        WITH 
+        -- Define the map viewport
+        viewport AS (
+          SELECT ST_MakeEnvelope(${bbox.west}, ${bbox.south}, ${bbox.east}, ${bbox.north}) as bounds
+        ),
+        -- Pre-filter locations using grid cells and bounding box
+        filtered_locations AS (
+          SELECT ${geometryColumn} as geom
+          FROM sensitive_locations
+          WHERE 
+            -- Grid cell filtering (uses index)
+            grid_x >= ${gridMinX} AND grid_x <= ${gridMaxX}
+            AND grid_y >= ${gridMinY} AND grid_y <= ${gridMaxY}
+            -- Bounding box pre-filtering using indexed columns
+            AND bbox_minx <= ${bbox.east}
+            AND bbox_maxx >= ${bbox.west}
+            AND bbox_miny <= ${bbox.north}
+            AND bbox_maxy >= ${bbox.south}
+            -- Final exact intersection check (uses R-tree index)
+            AND ST_Intersects(${geometryColumn}, (SELECT bounds FROM viewport))
+        ),
+        -- Create buffers for filtered locations
+        buffers AS (
+          SELECT ST_Buffer(geom, ${bufferInDegrees}) as buffer_geom
+          FROM filtered_locations
+        ),
+        -- Union all buffers into restricted area
+        restricted AS (
+          SELECT 
+            COALESCE(ST_Union_Agg(buffer_geom), ST_GeomFromText('POLYGON EMPTY')) as area,
+            COUNT(*) as location_count
+          FROM buffers
+        ),
+        -- Calculate eligible area (viewport minus restricted)
+        eligible AS (
+          SELECT 
+            ST_Difference(
+              (SELECT bounds FROM viewport),
+              (SELECT area FROM restricted)
+            ) as area
+        ),
+        -- Apply optional simplification for performance
+        final_zones AS (
+          SELECT 
+            ${simplifyFactor > 0 ? 
+              `ST_Simplify((SELECT area FROM restricted), ${simplifyFactor})` : 
+              '(SELECT area FROM restricted)'} as restricted_area,
+            ${simplifyFactor > 0 ? 
+              `ST_Simplify((SELECT area FROM eligible), ${simplifyFactor})` : 
+              '(SELECT area FROM eligible)'} as eligible_area,
+            (SELECT location_count FROM restricted) as count
+        )
+        -- Return both zones as GeoJSON
+        SELECT 
+          ST_AsGeoJSON(restricted_area) as restricted_json,
+          ST_AsGeoJSON(eligible_area) as eligible_json,
+          count as location_count
+        FROM final_zones
+      `;
+
+      // Execute the optimized query
+      const result = await this.conn.query(optimizedQuery);
+      const data = result.toArray()[0];
+
+      if (progressCallback) {
+        progressCallback(80, 'Processing results...');
+      }
+
+      // Parse results into FeatureCollections
       let restrictedZones: FeatureCollection | null = null;
-      if (bufferData && bufferData.geojson) {
-        const geometry = JSON.parse(bufferData.geojson);
+      if (data && data.restricted_json) {
+        const geometry = JSON.parse(data.restricted_json);
         restrictedZones = {
           type: 'FeatureCollection',
           features: [{
@@ -490,52 +627,9 @@ export class DuckDBSpatialService {
         };
       }
 
-      if (progressCallback) {
-        progressCallback(70, 'Calculating eligible zones...');
-      }
-
-      // Calculate eligible zones (inverse of restricted zones)
-      // This is scoped to the current viewport for efficiency
-      const eligibleQuery = `
-        WITH map_bounds AS (
-          SELECT ST_MakeEnvelope(${bbox[0]}, ${bbox[1]}, ${bbox[2]}, ${bbox[3]}) as bounds
-        ),
-        valid_locations AS (
-          SELECT 
-            ${geometryRepairSQL} as geometry
-          FROM sensitive_locations
-          WHERE ST_Intersects(
-            geometry,
-            (SELECT bounds FROM map_bounds)
-          )
-        ),
-        buffered_locations AS (
-          SELECT ST_Buffer(geometry, ${bufferInDegrees}) as buffer_geom
-          FROM valid_locations
-          WHERE ST_IsValid(geometry)
-        ),
-        unified_buffer AS (
-          SELECT ST_Union_Agg(buffer_geom) as restricted_area
-          FROM buffered_locations
-        ),
-        eligible_area AS (
-          SELECT ST_Difference(
-            (SELECT bounds FROM map_bounds),
-            COALESCE(restricted_area, ST_GeomFromText('POLYGON EMPTY'))
-          ) as eligible_geom
-          FROM unified_buffer
-        )
-        SELECT ST_AsGeoJSON(eligible_geom) as geojson
-        FROM eligible_area
-        WHERE eligible_geom IS NOT NULL
-      `;
-
-      const eligibleResult = await this.conn.query(eligibleQuery);
-      const eligibleData = eligibleResult.toArray()[0];
-      
       let eligibleZones: FeatureCollection | null = null;
-      if (eligibleData && eligibleData.geojson) {
-        const geometry = JSON.parse(eligibleData.geojson);
+      if (data && data.eligible_json) {
+        const geometry = JSON.parse(data.eligible_json);
         eligibleZones = {
           type: 'FeatureCollection',
           features: [{
@@ -546,17 +640,6 @@ export class DuckDBSpatialService {
         };
       }
 
-      // Get statistics
-      const statsResult = await this.conn.query(`
-        SELECT COUNT(*) as count
-        FROM sensitive_locations
-        WHERE ST_Intersects(
-          geometry,
-          ST_MakeEnvelope(${bbox[0]}, ${bbox[1]}, ${bbox[2]}, ${bbox[3]})
-        )
-      `);
-      const locationCount = statsResult.toArray()[0].count;
-
       const processingTime = performance.now() - startTime;
 
       if (progressCallback) {
@@ -564,25 +647,27 @@ export class DuckDBSpatialService {
       }
 
       Logger.log('Zones calculated successfully');
-      Logger.log('Processing time:', processingTime.toFixed(2), 'ms');
-      Logger.groupEnd('Calculating zones with DuckDB');
+      Logger.log(`Processing time: ${processingTime.toFixed(2)}ms`);
+      Logger.log(`Locations processed: ${data?.location_count || 0}`);
+      Logger.groupEnd('Calculating zones with DuckDB (Optimized)');
 
       return {
         restrictedZones,
         eligibleZones,
         stats: {
-          locationCount,
+          locationCount: data?.location_count || 0,
           processingTime: Math.round(processingTime)
         }
       };
-    } catch (error: any) {
+    } catch (error) {
       Logger.error('Error calculating zones with DuckDB', error);
       
       // Check if it's a topology exception
-      if (error.message && error.message.includes('TopologyException')) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage && errorMessage.includes('TopologyException')) {
         Logger.warn('TopologyException detected - geometry repair needed');
         Logger.warn('Falling back to Turf.js for this operation');
-        Logger.groupEnd('Calculating zones with DuckDB');
+        Logger.groupEnd('Calculating zones with DuckDB (Optimized)');
         
         // Return a special response indicating fallback is needed
         return {
@@ -596,7 +681,7 @@ export class DuckDBSpatialService {
         };
       }
       
-      Logger.groupEnd('Calculating zones with DuckDB');
+      Logger.groupEnd('Calculating zones with DuckDB (Optimized)');
       throw error;
     }
   }
@@ -611,7 +696,7 @@ export class DuckDBSpatialService {
     type: string;
     lat: number;
     lon: number;
-    tags: any;
+    tags: Record<string, string>;
   }>> {
     if (!this.conn) throw new Error('Database not initialized');
     
@@ -668,6 +753,7 @@ export class DuckDBSpatialService {
     totalLocations: number;
     byType: Record<string, number>;
     boundingBox: number[];
+    indexStats?: Array<Record<string, unknown>>;
   }> {
     if (!this.conn) throw new Error('Database not initialized');
 
@@ -698,7 +784,34 @@ export class DuckDBSpatialService {
     const bbox = bboxResult.toArray()[0];
     const boundingBox = [bbox.min_x, bbox.min_y, bbox.max_x, bbox.max_y];
 
-    return { totalLocations, byType, boundingBox };
+    // Get index statistics if available
+    let indexStats;
+    try {
+      const indexResult = await this.conn.query(`
+        SELECT * FROM duckdb_indexes() 
+        WHERE table_name = 'sensitive_locations'
+      `);
+      indexStats = indexResult.toArray();
+    } catch {
+      Logger.log('Index statistics not available');
+    }
+
+    return { totalLocations, byType, boundingBox, indexStats };
+  }
+
+  /**
+   * Analyze query performance (for debugging)
+   */
+  async analyzeQueryPerformance(query: string): Promise<string> {
+    if (!this.conn) throw new Error('Database not initialized');
+    
+    try {
+      const result = await this.conn.query(`EXPLAIN ANALYZE ${query}`);
+      return result.toString();
+    } catch (error) {
+      Logger.error('Query analysis failed:', error);
+      return 'Analysis failed';
+    }
   }
 
   /**
