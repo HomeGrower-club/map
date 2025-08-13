@@ -17,6 +17,7 @@ export class DuckDBSpatialService {
   private conn: duckdb.AsyncDuckDBConnection | null = null;
   private initialized = false;
   private hasMakeValid = false;
+  private loadedFromParquet = false;
   private spatialCapabilities: {
     hasMakeValid: boolean;
     hasReducePrecision: boolean;
@@ -104,8 +105,8 @@ export class DuckDBSpatialService {
       // Set memory limit (use more memory for better performance)
       await this.conn.query(`SET memory_limit = '1GB'`);
       
-      // Enable parallel execution
-      await this.conn.query(`SET threads = 4`);
+      // Note: Threading is not available in WASM, so we skip thread configuration
+      // await this.conn.query(`SET threads = 4`);
       
       // Enable progress bar for long-running queries
       await this.conn.query(`SET enable_progress_bar = true`);
@@ -290,6 +291,144 @@ export class DuckDBSpatialService {
     `);
 
     Logger.log('Schema and indexes created successfully');
+  }
+
+  /**
+   * Check if Parquet file is available
+   */
+  async checkParquetAvailable(): Promise<boolean> {
+    try {
+      const response = await fetch('/berlin-locations.parquet', { method: 'HEAD' });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Load data from pre-built Parquet file
+   * Returns an object with success status and location count
+   */
+  async loadFromParquet(progressCallback?: (message: string) => void): Promise<{ success: boolean; count?: number }> {
+    if (!this.conn || !this.db) throw new Error('Database not initialized');
+
+    try {
+      Logger.group('Loading from Parquet file');
+      
+      if (progressCallback) {
+        progressCallback('Checking for pre-built database...');
+      }
+
+      // Check if Parquet file exists
+      const parquetAvailable = await this.checkParquetAvailable();
+      if (!parquetAvailable) {
+        Logger.log('Parquet file not found');
+        Logger.groupEnd('Loading from Parquet file');
+        return { success: false };
+      }
+
+      if (progressCallback) {
+        progressCallback('Loading optimized database...');
+      }
+
+      // Drop existing table if it exists
+      await this.conn.query(`DROP TABLE IF EXISTS sensitive_locations`);
+
+      // Register the Parquet file with DuckDB WASM
+      // This is necessary for the browser to access the file via HTTP
+      await this.db.registerFileURL(
+        'berlin-locations.parquet',  // Internal name for DuckDB
+        '/berlin-locations.parquet',  // URL path to fetch from
+        duckdb.DuckDBDataProtocol.HTTP,  // Use HTTP protocol
+        false  // Don't cache the file registration
+      );
+
+      // Now load the Parquet file into a table
+      await this.conn.query(`
+        CREATE TABLE sensitive_locations AS 
+        SELECT * FROM read_parquet('berlin-locations.parquet')
+      `);
+
+      // Recreate indexes (they're not stored in Parquet)
+      if (progressCallback) {
+        progressCallback('Creating spatial indexes...');
+      }
+
+      await this.conn.query(`
+        CREATE INDEX IF NOT EXISTS idx_sensitive_geometry 
+        ON sensitive_locations USING RTREE (geometry)
+      `);
+
+      await this.conn.query(`
+        CREATE INDEX IF NOT EXISTS idx_sensitive_geometry_simple
+        ON sensitive_locations USING RTREE (geometry_simple)
+      `);
+
+      await this.conn.query(`
+        CREATE INDEX IF NOT EXISTS idx_sensitive_bbox
+        ON sensitive_locations (bbox_minx, bbox_miny, bbox_maxx, bbox_maxy)
+      `);
+
+      await this.conn.query(`
+        CREATE INDEX IF NOT EXISTS idx_sensitive_grid
+        ON sensitive_locations (grid_x, grid_y)
+      `);
+
+      await this.conn.query(`
+        CREATE INDEX IF NOT EXISTS idx_sensitive_type
+        ON sensitive_locations (type)
+      `);
+
+      await this.conn.query(`
+        CREATE INDEX IF NOT EXISTS idx_sensitive_name
+        ON sensitive_locations (name)
+      `);
+
+      // Update statistics
+      await this.conn.query(`ANALYZE sensitive_locations`);
+
+      // Verify data loaded and get count
+      const countResult = await this.conn.query(`SELECT COUNT(*) as count FROM sensitive_locations`);
+      const count = Number(countResult.toArray()[0].count); // Convert BigInt to Number
+
+      this.loadedFromParquet = true;
+      Logger.log(`Loaded ${count} locations from Parquet`);
+      Logger.groupEnd('Loading from Parquet file');
+
+      if (progressCallback) {
+        progressCallback(`Loaded ${count} locations from optimized database`);
+      }
+
+      return { success: true, count };
+    } catch (error) {
+      Logger.error('Failed to load from Parquet:', error);
+      Logger.groupEnd('Loading from Parquet file');
+      return { success: false };
+    }
+  }
+
+  /**
+   * Check if data is loaded from Parquet
+   */
+  isLoadedFromParquet(): boolean {
+    return this.loadedFromParquet;
+  }
+
+  /**
+   * Force reload from OSM API (eject Parquet)
+   */
+  async ejectParquetData(): Promise<void> {
+    if (!this.conn) throw new Error('Database not initialized');
+
+    Logger.log('Ejecting Parquet data, preparing for fresh load...');
+    
+    // Drop the existing table
+    await this.conn.query(`DROP TABLE IF EXISTS sensitive_locations`);
+    
+    // Recreate the schema
+    await this.createSchema();
+    
+    this.loadedFromParquet = false;
   }
 
   /**
@@ -496,7 +635,6 @@ export class DuckDBSpatialService {
     restrictedZones: FeatureCollection | null;
     eligibleZones: FeatureCollection | null;
     stats: { locationCount: number; processingTime: number };
-    fallbackUsed?: boolean;
   }> {
     if (!this.conn) throw new Error('Database not initialized');
 
@@ -533,6 +671,17 @@ export class DuckDBSpatialService {
       const gridMaxX = Math.ceil(bbox.east / 0.01);
       const gridMinY = Math.floor(bbox.south / 0.01);
       const gridMaxY = Math.ceil(bbox.north / 0.01);
+      
+      // Debug information about bounds and grid cells
+      Logger.log(`Map bounds: N=${bbox.north.toFixed(6)}, S=${bbox.south.toFixed(6)}, E=${bbox.east.toFixed(6)}, W=${bbox.west.toFixed(6)}`);
+      Logger.log(`Grid cells: X=[${gridMinX}, ${gridMaxX}] (${gridMaxX - gridMinX + 1} cells), Y=[${gridMinY}, ${gridMaxY}] (${gridMaxY - gridMinY + 1} cells)`);
+      const totalGridCells = (gridMaxX - gridMinX + 1) * (gridMaxY - gridMinY + 1);
+      Logger.log(`Total grid cells to check: ${totalGridCells}`);
+      
+      // Warn if the grid search area is too large (might indicate world-wide bounds)
+      if (totalGridCells > 10000) {
+        Logger.warn(`Very large search area detected (${totalGridCells} grid cells). This might indicate improper map bounds.`);
+      }
 
       if (progressCallback) {
         progressCallback(20, 'Executing optimized zone calculation...');
@@ -608,6 +757,9 @@ export class DuckDBSpatialService {
       // Execute the optimized query
       const result = await this.conn.query(optimizedQuery);
       const data = result.toArray()[0];
+      
+      // Debug: Check how many locations were found
+      Logger.log(`Locations found in viewport: ${data?.location_count || 0}`);
 
       if (progressCallback) {
         progressCallback(80, 'Processing results...');
@@ -661,26 +813,6 @@ export class DuckDBSpatialService {
       };
     } catch (error) {
       Logger.error('Error calculating zones with DuckDB', error);
-      
-      // Check if it's a topology exception
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      if (errorMessage && errorMessage.includes('TopologyException')) {
-        Logger.warn('TopologyException detected - geometry repair needed');
-        Logger.warn('Falling back to Turf.js for this operation');
-        Logger.groupEnd('Calculating zones with DuckDB (Optimized)');
-        
-        // Return a special response indicating fallback is needed
-        return {
-          restrictedZones: null,
-          eligibleZones: null,
-          stats: {
-            locationCount: 0,
-            processingTime: Math.round(performance.now() - startTime)
-          },
-          fallbackUsed: true
-        };
-      }
-      
       Logger.groupEnd('Calculating zones with DuckDB (Optimized)');
       throw error;
     }
@@ -772,13 +904,14 @@ export class DuckDBSpatialService {
       byType[row.type] = row.count;
     }
 
-    // Bounding box
+    // Bounding box - use pre-computed bbox columns for instant results
+    // This avoids expensive ST_Union_Agg operation on all geometries
     const bboxResult = await this.conn.query(`
       SELECT 
-        ST_XMin(ST_Union_Agg(geometry)) as min_x,
-        ST_YMin(ST_Union_Agg(geometry)) as min_y,
-        ST_XMax(ST_Union_Agg(geometry)) as max_x,
-        ST_YMax(ST_Union_Agg(geometry)) as max_y
+        MIN(bbox_minx) as min_x,
+        MIN(bbox_miny) as min_y,
+        MAX(bbox_maxx) as max_x,
+        MAX(bbox_maxy) as max_y
       FROM sensitive_locations
     `);
     const bbox = bboxResult.toArray()[0];

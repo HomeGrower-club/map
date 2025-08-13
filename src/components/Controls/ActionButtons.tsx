@@ -1,26 +1,35 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { overpassApi } from '../../services/overpassApi';
-import { geometryProcessor } from '../../services/geometryProcessor';
 import { duckdbSpatial } from '../../services/duckdbSpatial';
 import { cacheService } from '../../services/cacheService';
 import { useDuckDBSpatial } from '../../hooks/useDuckDBSpatial';
-import { FeatureFlags } from '../../utils/featureFlags';
 import { Logger } from '../../utils/logger';
 import { DEBUG_MODE } from '../../utils/debugMode';
+import { ConfirmDialog } from '../Dialogs/ConfirmDialog';
 
 export function ActionButtons() {
   const { state, dispatch } = useApp();
+  
+  // Debug component mounting
+  useEffect(() => {
+    Logger.log('🔧 ActionButtons component mounted');
+    return () => {
+      Logger.log('🗑️ ActionButtons component unmounting');
+    };
+  }, []);
   const [canCalculate, setCanCalculate] = useState(false);
   const [showCacheOptions, setShowCacheOptions] = useState(false);
   const [cacheStats, setCacheStats] = useState<ReturnType<typeof cacheService.getCacheStats> | null>(null);
   const [autoRecalculate, setAutoRecalculate] = useState(true);
   const [hasCalculatedOnce, setHasCalculatedOnce] = useState(false);
+  const [showFreshDataDialog, setShowFreshDataDialog] = useState(false);
+  const [isLoadedFromParquet, setIsLoadedFromParquet] = useState(false);
   const { isInitialized: isDuckDBReady, isInitializing: isDuckDBInitializing } = useDuckDBSpatial();
-  const useDuckDB = FeatureFlags.USE_DUCKDB_SPATIAL;
   const previousBoundsRef = useRef<string | null>(null);
   const recalculateTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isCalculatingRef = useRef(false);
+  const lastManualCalculationRef = useRef<number>(0); // Timestamp of last manual calculation
   const latestStateRef = useRef(state); // Keep a ref to the latest state
   
   // Update the ref whenever state changes
@@ -43,18 +52,79 @@ export function ActionButtons() {
     }
 
     dispatch({ type: 'SET_LOADING', payload: true });
+    Logger.log(`🚀 handleFetchData called - forceRefresh: ${forceRefresh}, isDuckDBReady: ${isDuckDBReady}`);
     dispatch({ 
       type: 'SET_STATUS', 
       payload: { message: 'Loading restricted locations...', type: 'info' } 
     });
     dispatch({ 
       type: 'SET_PROGRESS', 
-      payload: { progress: 0, message: 'Fetching data...' } 
+      payload: { progress: 0, message: 'Initializing...' } 
     });
 
     const startTime = performance.now();
 
     try {
+      // If not forcing refresh, try to load from Parquet first
+      if (isDuckDBReady && !forceRefresh) {
+        dispatch({ 
+          type: 'SET_PROGRESS', 
+          payload: { progress: 10, message: 'Checking for optimized database...' } 
+        });
+
+        const parquetResult = await duckdbSpatial.loadFromParquet((message) => {
+          dispatch({ 
+            type: 'SET_PROGRESS', 
+            payload: { progress: 50, message } 
+          });
+        });
+
+        if (parquetResult.success) {
+          // Successfully loaded from Parquet
+          const elapsed = (performance.now() - startTime).toFixed(0);
+          const locationCount = parquetResult.count || 0;
+          
+          dispatch({ 
+            type: 'SET_STATUS', 
+            payload: { 
+              message: `Loaded ${locationCount} locations from optimized database`, 
+              type: 'success' 
+            } 
+          });
+
+          dispatch({ 
+            type: 'SET_STATS', 
+            payload: {
+              features: locationCount,
+              time: parseInt(elapsed),
+              mode: 'Parquet (Optimized)'
+            } 
+          });
+
+          dispatch({ 
+            type: 'SET_PROGRESS', 
+            payload: { progress: 100, message: 'Complete!' } 
+          });
+
+          setCanCalculate(true);
+          Logger.log('✅ About to setIsLoadedFromParquet(true) - Parquet load successful');
+          setIsLoadedFromParquet(true);
+          Logger.log('✅ setIsLoadedFromParquet(true) called');
+
+          setTimeout(() => {
+            dispatch({ 
+              type: 'SET_PROGRESS', 
+              payload: { progress: 0, message: '' } 
+            });
+          }, 1000);
+
+          return; // Exit early, we're done!
+        }
+      }
+
+      // If forced refresh or Parquet not available, load from OSM API
+      setIsLoadedFromParquet(false);
+      Logger.log('❌ setIsLoadedFromParquet(false) - Loading from OSM API');
       dispatch({ 
         type: 'SET_PROGRESS', 
         payload: { progress: 30, message: forceRefresh ? 'Force refreshing from OpenStreetMap...' : 'Querying OpenStreetMap...' } 
@@ -65,15 +135,16 @@ export function ActionButtons() {
 
       dispatch({ 
         type: 'SET_PROGRESS', 
-        payload: { progress: 60, message: 'Converting data...' } 
+        payload: { progress: 60, message: 'Processing data...' } 
       });
 
-      // Convert to GeoJSON for display
-      const geoJSON = geometryProcessor.osmToGeoJSON(osmData);
-      dispatch({ type: 'SET_GEOJSON', payload: geoJSON });
+      // Load data into DuckDB for spatial processing
+      if (isDuckDBReady) {
+        // If we forced refresh, eject the Parquet data first
+        if (forceRefresh && duckdbSpatial.isLoadedFromParquet()) {
+          await duckdbSpatial.ejectParquetData();
+        }
 
-      // If using DuckDB, also load data there for later processing
-      if (useDuckDB && isDuckDBReady) {
         await duckdbSpatial.loadOSMData(osmData, (message) => {
           dispatch({ 
             type: 'SET_PROGRESS', 
@@ -93,7 +164,7 @@ export function ActionButtons() {
       dispatch({ 
         type: 'SET_STATUS', 
         payload: { 
-          message: `Loaded ${geoJSON.features.length} restricted locations`, 
+          message: `Loaded ${osmData.elements.length} restricted locations from OpenStreetMap`, 
           type: 'success' 
         } 
       });
@@ -101,9 +172,9 @@ export function ActionButtons() {
       dispatch({ 
         type: 'SET_STATS', 
         payload: {
-          features: geoJSON.features.length,
+          features: osmData.elements.length,
           time: parseInt(elapsed),
-          mode: 'Fetch'
+          mode: forceRefresh ? 'Fresh Fetch' : 'OSM API'
         } 
       });
 
@@ -134,13 +205,47 @@ export function ActionButtons() {
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
-  }, [state.map.bounds, dispatch, useDuckDB, isDuckDBReady]);
+  }, [state.map.bounds, dispatch, isDuckDBReady]);
 
-  const handleCalculateZones = useCallback(async () => {
-    if (!state.data.restrictedLocations || !state.map.bounds) {
+  const handleCalculateZones = useCallback(async (isAutoRecalculate = false) => {
+    // Debug: Log current state
+    Logger.log(`Calculate zones called - hasRestrictedLocations: ${!!state.data.restrictedLocations}, isLoadedFromParquet: ${isLoadedFromParquet}, hasBounds: ${!!state.map.bounds}, zoom: ${state.map.zoom}`);
+    if (state.map.bounds) {
+      const bounds = state.map.bounds;
+      Logger.log(`Current bounds: N=${bounds.getNorth().toFixed(6)}, S=${bounds.getSouth().toFixed(6)}, E=${bounds.getEast().toFixed(6)}, W=${bounds.getWest().toFixed(6)}`);
+    }
+    
+    // Check if DuckDB has data (more reliable than state flags)
+    let hasDuckDBData = false;
+    if (isDuckDBReady) {
+      try {
+        const stats = await duckdbSpatial.getStatistics();
+        hasDuckDBData = stats.totalLocations > 0;
+        Logger.log(`DuckDB check: ${stats.totalLocations} locations available`);
+      } catch (error) {
+        Logger.warn('Failed to check DuckDB data:', error);
+      }
+    }
+    
+    // Check if data is loaded (OSM API, Parquet state, or DuckDB directly)
+    const hasData = state.data.restrictedLocations || isLoadedFromParquet || hasDuckDBData;
+    if (!hasData || !state.map.bounds) {
       dispatch({ 
         type: 'SET_STATUS', 
         payload: { message: 'Please load restricted locations first', type: 'error' } 
+      });
+      return;
+    }
+
+    // Check minimum zoom level to prevent timeouts on large areas
+    const minZoomForCalculation = 13; // 3 levels above minimum zoom (10 + 3)
+    if (state.map.zoom < minZoomForCalculation) {
+      dispatch({ 
+        type: 'SET_STATUS', 
+        payload: { 
+          message: `Please zoom in further (minimum zoom level ${minZoomForCalculation} required for calculations)`, 
+          type: 'warning' 
+        } 
       });
       return;
     }
@@ -152,6 +257,15 @@ export function ActionButtons() {
     }
 
     isCalculatingRef.current = true;
+    
+    // Only record timestamp for manual calculations (button clicks)
+    if (!isAutoRecalculate) {
+      lastManualCalculationRef.current = Date.now();
+      Logger.log('Manual calculation triggered - setting cooldown for auto-recalculate');
+    } else {
+      Logger.log('Auto-recalculation triggered');
+    }
+    
     setHasCalculatedOnce(true);
     dispatch({ type: 'SET_LOADING', payload: true });
     dispatch({ 
@@ -166,161 +280,44 @@ export function ActionButtons() {
     const startTime = performance.now();
 
     try {
-      let bufferZones = null;
-      let eligibleZones = null;
-      let featureCount = 0;
-      let fallbackUsed = false;
-
-      if (useDuckDB && isDuckDBReady) {
-        // Use DuckDB for spatial processing
-        Logger.log('Using DuckDB for spatial processing');
-        
-        const result = await duckdbSpatial.calculateZones(
-          state.processing.bufferDistance,
-          state.map.bounds,
-          state.processing.mode,
-          (progress, message) => {
-            dispatch({ 
-              type: 'SET_PROGRESS', 
-              payload: { progress, message } 
-            });
-          }
-        );
-
-        // Check if DuckDB failed and we need to fallback
-        if (result.fallbackUsed) {
-          fallbackUsed = true;
-          Logger.warn('DuckDB encountered topology issues, falling back to Turf.js');
-          dispatch({ 
-            type: 'SET_STATUS', 
-            payload: { 
-              message: 'Using Turf.js due to geometry complexity...', 
-              type: 'info' 
-            } 
-          });
-          
-          // Fall back to Turf.js implementation
-          const geoJSON = geometryProcessor.osmToGeoJSON(state.data.restrictedLocations);
-          featureCount = geoJSON.features.length;
-
-          bufferZones = await geometryProcessor.createBuffersOptimized(
-            geoJSON,
-            state.processing.bufferDistance,
-            state.processing.mode,
-            (progress, message) => {
-              dispatch({ 
-                type: 'SET_PROGRESS', 
-                payload: { progress, message } 
-              });
-            }
-          );
-
-          if (bufferZones) {
-            dispatch({ type: 'SET_BUFFER_ZONES', payload: bufferZones });
-
-            dispatch({ 
-              type: 'SET_PROGRESS', 
-              payload: { progress: 80, message: 'Rendering restricted zones...' } 
-            });
-
-            eligibleZones = geometryProcessor.calculateEligibleZonesOptimized(
-              state.map.bounds,
-              bufferZones,
-              state.processing.mode,
-              (progress, message) => {
-                dispatch({ 
-                  type: 'SET_PROGRESS', 
-                  payload: { progress, message } 
-                });
-              }
-            );
-
-            if (eligibleZones) {
-              dispatch({ type: 'SET_ELIGIBLE_ZONES', payload: eligibleZones });
-            }
-          }
-        } else {
-          // DuckDB succeeded
-          if (result.restrictedZones) {
-            // Convert DuckDB result to format expected by the app
-            bufferZones = result.restrictedZones.features[0];
-            dispatch({ type: 'SET_BUFFER_ZONES', payload: bufferZones });
-          }
-
-          if (result.eligibleZones) {
-            eligibleZones = result.eligibleZones.features[0];
-            dispatch({ type: 'SET_ELIGIBLE_ZONES', payload: eligibleZones });
-          }
-
-          featureCount = result.stats.locationCount;
-
-          // Show performance comparison if enabled
-          if (FeatureFlags.SHOW_PERFORMANCE_COMPARISON) {
-            Logger.log(`DuckDB processing time: ${result.stats.processingTime}ms`);
-          }
-        }
-      } else {
-        // Use Turf.js for spatial processing (original implementation)
-        Logger.log('Using Turf.js for spatial processing');
-        
-        const geoJSON = geometryProcessor.osmToGeoJSON(state.data.restrictedLocations);
-        featureCount = geoJSON.features.length;
-
-        bufferZones = await geometryProcessor.createBuffersOptimized(
-          geoJSON,
-          state.processing.bufferDistance,
-          state.processing.mode,
-          (progress, message) => {
-            dispatch({ 
-              type: 'SET_PROGRESS', 
-              payload: { progress, message } 
-            });
-          }
-        );
-
-        if (bufferZones) {
-          dispatch({ type: 'SET_BUFFER_ZONES', payload: bufferZones });
-
+      // DuckDB-only spatial processing
+      Logger.log('Using DuckDB for spatial processing');
+      
+      const result = await duckdbSpatial.calculateZones(
+        state.processing.bufferDistance,
+        state.map.bounds,
+        state.processing.mode,
+        (progress, message) => {
           dispatch({ 
             type: 'SET_PROGRESS', 
-            payload: { progress: 80, message: 'Rendering restricted zones...' } 
+            payload: { progress, message } 
           });
-
-          eligibleZones = geometryProcessor.calculateEligibleZonesOptimized(
-            state.map.bounds,
-            bufferZones,
-            state.processing.mode,
-            (progress, message) => {
-              dispatch({ 
-                type: 'SET_PROGRESS', 
-                payload: { progress, message } 
-              });
-            }
-          );
-
-          if (eligibleZones) {
-            dispatch({ type: 'SET_ELIGIBLE_ZONES', payload: eligibleZones });
-          }
         }
+      );
+
+      // Process DuckDB results
+      let bufferZones = null;
+      let eligibleZones = null;
+      
+      if (result.restrictedZones) {
+        bufferZones = result.restrictedZones.features[0];
+        dispatch({ type: 'SET_BUFFER_ZONES', payload: bufferZones });
       }
+
+      if (result.eligibleZones) {
+        eligibleZones = result.eligibleZones.features[0];
+        dispatch({ type: 'SET_ELIGIBLE_ZONES', payload: eligibleZones });
+      }
+
+      const featureCount = result.stats.locationCount;
 
       const elapsed = (performance.now() - startTime).toFixed(0);
-      let processingEngine = ' (Turf.js)';
-      
-      if (useDuckDB && isDuckDBReady) {
-        // Check if fallback was used
-        if (fallbackUsed) {
-          processingEngine = ' (Turf.js - fallback)';
-        } else {
-          processingEngine = ' (DuckDB)';
-        }
-      }
 
       if (bufferZones || eligibleZones) {
         dispatch({ 
           type: 'SET_STATUS', 
           payload: { 
-            message: `Zones calculated with ${state.processing.bufferDistance}m buffer${processingEngine}`, 
+            message: `Zones calculated with ${state.processing.bufferDistance}m buffer (DuckDB)`, 
             type: 'success' 
           } 
         });
@@ -330,7 +327,7 @@ export function ActionButtons() {
           payload: {
             features: featureCount,
             time: parseInt(elapsed),
-            mode: `${state.processing.mode}${processingEngine}`
+            mode: `${state.processing.mode} (DuckDB)`
           } 
         });
 
@@ -370,17 +367,24 @@ export function ActionButtons() {
       isCalculatingRef.current = false; // Reset the calculation flag
       dispatch({ type: 'SET_LOADING', payload: false });
     }
-  }, [state.data.restrictedLocations, state.map.bounds, state.processing.bufferDistance, state.processing.mode, dispatch, useDuckDB, isDuckDBReady]);
+  }, [state.data.restrictedLocations, state.map.bounds, state.map.zoom, state.processing.bufferDistance, state.processing.mode, dispatch, isDuckDBReady]);
 
   // Auto-recalculate zones when map bounds change
   useEffect(() => {
     // Skip if auto-recalculate is disabled or we haven't calculated once yet
-    if (!autoRecalculate || !hasCalculatedOnce || !state.data.restrictedLocations) {
+    if (!autoRecalculate || !hasCalculatedOnce || (!state.data.restrictedLocations && !isLoadedFromParquet)) {
       return;
     }
 
     // Skip if currently loading or calculating
     if (state.processing.isLoading || isCalculatingRef.current) {
+      return;
+    }
+
+    // Skip if a manual calculation happened recently (within 2 seconds)
+    const timeSinceManualCalculation = Date.now() - lastManualCalculationRef.current;
+    if (timeSinceManualCalculation < 2000) {
+      Logger.log(`Skipping auto-recalculate - manual calculation happened ${timeSinceManualCalculation}ms ago`);
       return;
     }
 
@@ -407,7 +411,7 @@ export function ActionButtons() {
       // Set a new timer for recalculation
       recalculateTimerRef.current = setTimeout(() => {
         Logger.log(`Auto-recalculating zones for new bounds: ${currentBounds}`);
-        handleCalculateZones();
+        handleCalculateZones(true); // Pass true for auto-recalculate
       }, 750); // Slightly longer debounce for better UX
     }
     
@@ -435,10 +439,19 @@ export function ActionButtons() {
     });
   }, [dispatch]);
 
+  const handleFreshDataClick = useCallback(() => {
+    setShowFreshDataDialog(true);
+  }, []);
+
+  const handleFreshDataConfirm = useCallback(async () => {
+    setShowFreshDataDialog(false);
+    await handleFetchData(true); // Force refresh
+  }, [handleFetchData]);
+
   return (
     <>
       {/* Show DuckDB status - only in debug mode */}
-      {DEBUG_MODE && useDuckDB && (
+      {DEBUG_MODE && (
         <div className="control-group" style={{ fontSize: '12px', color: '#666' }}>
           <div>
             Processing Engine: {isDuckDBReady ? '✅ DuckDB Spatial' : isDuckDBInitializing ? '⏳ Initializing DuckDB...' : '⚠️ DuckDB (not ready)'}
@@ -455,6 +468,25 @@ export function ActionButtons() {
           Load Restricted Locations
         </button>
       </div>
+      
+      {/* Fresh data button - show when loaded from Parquet */}
+      {isLoadedFromParquet && (
+        <div className="control-group">
+          <button
+            onClick={handleFreshDataClick}
+            disabled={state.processing.isLoading}
+            style={{ 
+              background: '#ffc107',
+              color: '#000',
+              fontSize: '13px',
+              padding: '8px'
+            }}
+            title="Load fresh data from OpenStreetMap (current session only)"
+          >
+            🔄 Load Fresh Data (Session Only)
+          </button>
+        </div>
+      )}
       
       {/* Force refresh button - only in debug mode */}
       {DEBUG_MODE && (
@@ -479,7 +511,14 @@ export function ActionButtons() {
         <button
           id="calculate-zones"
           onClick={handleCalculateZones}
-          disabled={state.processing.isLoading || !canCalculate}
+          disabled={state.processing.isLoading || !canCalculate || state.map.zoom < 13}
+          title={
+            state.map.zoom < 13 
+              ? `Please zoom in further (minimum zoom level 13 required, current: ${state.map.zoom})`
+              : !canCalculate
+              ? 'Please load restricted locations first'
+              : 'Calculate zones for cannabis clubs'
+          }
         >
           Calculate Eligible Zones
         </button>
@@ -570,6 +609,18 @@ export function ActionButtons() {
           )}
         </>
       )}
+      
+      {/* Fresh Data Warning Dialog */}
+      <ConfirmDialog
+        isOpen={showFreshDataDialog}
+        title="Load Fresh Data?"
+        message="This will bypass the optimized database and fetch fresh data directly from OpenStreetMap. This is slower and will only apply to your current browser session. The next time you load the app, it will use the optimized database again. Do you want to continue?"
+        confirmText="Yes, Load Fresh Data"
+        cancelText="Cancel"
+        onConfirm={handleFreshDataConfirm}
+        onCancel={() => setShowFreshDataDialog(false)}
+        variant="warning"
+      />
     </>
   );
 }

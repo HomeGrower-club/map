@@ -9,7 +9,7 @@ export const Config = {
    */
   map: {
     center: [52.520, 13.405] as [number, number], // Berlin center coordinates
-    zoom: 11,                  // City-wide view
+    zoom: 13,                  // Start at calculation-ready zoom level
     minZoom: 10,               // Prevent zooming out too far
     maxZoom: 18,               // Maximum detail level
     // Fixed Berlin bounds for consistent data loading (covers entire city)

@@ -1,0 +1,18 @@
+{
+  "generated": "2025-08-13T10:26:32.492Z",
+  "totalLocations": 11575,
+  "byType": {
+    "kindergarten": 2589,
+    "playground": 5954,
+    "school": 1194,
+    "sports_centre": 1011,
+    "community_centre": 827
+  },
+  "bounds": {
+    "north": 52.6755,
+    "south": 52.3382,
+    "east": 13.7612,
+    "west": 13.0892
+  },
+  "version": 1
+}
