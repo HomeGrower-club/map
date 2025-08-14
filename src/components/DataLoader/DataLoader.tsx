@@ -78,6 +78,7 @@ export function DataLoader() {
 
           // Get location points as GeoJSON for map display
           const geoJSON = await duckdbSpatial.getLocationsAsGeoJSON();
+          Logger.log(`📍 Got ${geoJSON.features.length} features for map display`);
           dispatch({ type: 'SET_GEOJSON', payload: geoJSON });
 
           // Mark data as loaded

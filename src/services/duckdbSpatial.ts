@@ -284,6 +284,7 @@ export class DuckDBSpatialService {
     if (!this.conn) throw new Error('Database not initialized');
     
     try {
+      Logger.log('Fetching locations as GeoJSON...');
       const result = await this.conn.query(`
         SELECT 
           osm_id,
@@ -296,7 +297,10 @@ export class DuckDBSpatialService {
         FROM sensitive_locations
       `);
       
-      const features = result.toArray().map(row => {
+      const rows = result.toArray();
+      Logger.log(`Query returned ${rows.length} rows`);
+      
+      const features = rows.map(row => {
         const tags = typeof row.tags === 'string' ? JSON.parse(row.tags) : row.tags;
         return {
           type: 'Feature' as const,
@@ -313,6 +317,8 @@ export class DuckDBSpatialService {
         };
       });
 
+      Logger.log(`Created ${features.length} GeoJSON features`);
+      
       return {
         type: 'FeatureCollection' as const,
         features
@@ -370,12 +376,24 @@ export class DuckDBSpatialService {
       Logger.log(`Loading Parquet from: ${parquetUrl}`);
 
       // Now load the Parquet file into a table
-      // When using registerFileURL, we need to use the full URL in read_parquet
-      // if it's from a CDN, otherwise use the registered internal name
-      const parquetPath = parquetUrl.startsWith('http') ? parquetUrl : internalFileName;
+      // DuckDB WASM has different requirements for local vs remote files:
+      // - For remote files (http/https), we use the full URL
+      // - For local files, we use the registered internal name
+      let queryPath: string;
+      if (parquetUrl.startsWith('http://') || parquetUrl.startsWith('https://')) {
+        // Remote file - use full URL
+        queryPath = parquetUrl;
+        Logger.log('Using remote URL for read_parquet');
+      } else {
+        // Local file - use the registered internal name
+        queryPath = internalFileName;
+        Logger.log('Using registered name for read_parquet');
+      }
       
       // Escape single quotes in the path to prevent SQL injection
-      const escapedPath = parquetPath.replace(/'/g, "''");
+      const escapedPath = queryPath.replace(/'/g, "''");
+      
+      Logger.log(`Executing: CREATE TABLE sensitive_locations AS SELECT * FROM read_parquet('${escapedPath}')`);
       
       await this.conn.query(`
         CREATE TABLE sensitive_locations AS 
@@ -388,6 +406,27 @@ export class DuckDBSpatialService {
       );
       const parquetCount = parquetCountResult.toArray()[0].count;
       Logger.log(`Loaded ${parquetCount} locations from Parquet file`);
+      
+      // Debug: Check what columns we have
+      const columnsResult = await this.conn.query(`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'sensitive_locations'
+      `);
+      const columns = columnsResult.toArray().map(r => r.column_name);
+      Logger.log(`Table columns: ${columns.join(', ')}`);
+      
+      // Debug: Check a sample row to see the data structure
+      const sampleResult = await this.conn.query(`
+        SELECT * FROM sensitive_locations LIMIT 1
+      `);
+      if (sampleResult.toArray().length > 0) {
+        const sample = sampleResult.toArray()[0];
+        Logger.log('Sample row:', sample);
+        if (sample.geometry) {
+          Logger.log('Geometry type:', typeof sample.geometry);
+        }
+      }
 
       // Recreate indexes (they're not stored in Parquet)
       if (progressCallback) {

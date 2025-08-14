@@ -75,6 +75,7 @@ export function MapLayers() {
       )}
 
       {/* Sensitive Locations (Blue markers) - Render last so they appear on top and remain clickable */}
+      {state.data.geoJSON && console.log(`📍 MapLayers rendering ${state.data.geoJSON.features?.length || 0} location markers`)}
       {state.data.geoJSON && (
         <GeoJSON
           key="sensitive-locations"
