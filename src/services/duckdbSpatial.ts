@@ -103,7 +103,7 @@ export class DuckDBSpatialService {
 
     try {
       // Set memory limit (use more memory for better performance)
-      await this.conn.query(`SET memory_limit = '1GB'`);
+      await this.conn.query(`SET memory_limit = '512MB'`);
       
       // Note: Threading is not available in WASM, so we skip thread configuration
       // await this.conn.query(`SET threads = 4`);
@@ -326,33 +326,47 @@ export class DuckDBSpatialService {
   }
 
   /**
-   * Load data from pre-built Parquet file
+   * Load data from pre-built Parquet file with retry logic
    * Returns an object with success status and location count
    */
-  async loadFromParquet(progressCallback?: (message: string) => void): Promise<{ success: boolean; count?: number }> {
+  async loadFromParquet(progressCallback?: (message: string) => void, maxRetries = 3): Promise<{ success: boolean; count?: number; error?: string }> {
     if (!this.conn || !this.db) throw new Error('Database not initialized');
 
-    try {
-      Logger.group('Loading from Parquet file');
-      
-      if (progressCallback) {
-        progressCallback('Checking for pre-built database...');
-      }
+    // Implement retry logic with exponential backoff
+    let lastError: Error | null = null;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        Logger.group(`Loading from Parquet file (attempt ${attempt}/${maxRetries})`);
+        
+        if (progressCallback) {
+          progressCallback(attempt > 1 
+            ? `Retrying... (attempt ${attempt}/${maxRetries})` 
+            : 'Checking for pre-built database...');
+        }
 
-      // Check if Parquet file exists
-      const parquetAvailable = await this.checkParquetAvailable();
-      if (!parquetAvailable) {
-        Logger.log('Parquet file not found');
-        Logger.groupEnd();
-        return { success: false };
-      }
+        // Check if Parquet file exists
+        const parquetAvailable = await this.checkParquetAvailable();
+        if (!parquetAvailable) {
+          Logger.log('Parquet file not found');
+          Logger.groupEnd();
+          
+          // If this is the last attempt, return failure
+          if (attempt === maxRetries) {
+            return { success: false, error: 'Parquet file not available after retries' };
+          }
+          
+          // Wait before retry
+          await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+          continue;
+        }
 
-      if (progressCallback) {
-        progressCallback(m.loading_optimized_db());
-      }
+        if (progressCallback) {
+          progressCallback(m.loading_optimized_db());
+        }
 
-      // Drop existing table if it exists
-      await this.conn.query(`DROP TABLE IF EXISTS sensitive_locations`);
+        // Drop existing table if it exists
+        await this.conn.query(`DROP TABLE IF EXISTS sensitive_locations`);
 
       // Register the Parquet file with DuckDB WASM
       // This is necessary for the browser to access the file via HTTP
@@ -451,10 +465,30 @@ export class DuckDBSpatialService {
 
       return { success: true, count };
     } catch (error) {
-      Logger.error('Failed to load from Parquet:', error);
+      Logger.error(`Attempt ${attempt}/${maxRetries} failed:`, error);
       Logger.groupEnd();
-      return { success: false };
+      lastError = error instanceof Error ? error : new Error(String(error));
+      
+      // If this is the last attempt, return failure
+      if (attempt === maxRetries) {
+        return { 
+          success: false, 
+          error: lastError.message 
+        };
+      }
+      
+      // Wait before retrying with exponential backoff
+      const waitTime = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // Max 5 seconds
+      Logger.log(`Retrying in ${waitTime}ms...`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
     }
+    }
+    
+    // Should never reach here, but for TypeScript completeness
+    return { 
+      success: false, 
+      error: lastError?.message || 'Failed to load Parquet file after all retries' 
+    };
   }
 
   /**

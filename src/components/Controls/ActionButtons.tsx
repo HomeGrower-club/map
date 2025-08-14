@@ -29,9 +29,9 @@ export function ActionButtons() {
   
   // Debug component mounting and cleanup
   useEffect(() => {
-    Logger.log('🔧 ActionButtons component mounted');
+    // ActionButtons component mounted
     return () => {
-      Logger.log('🗑️ ActionButtons component unmounting');
+      // ActionButtons component unmounting
       // Cancel any ongoing calculations
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
@@ -108,9 +108,9 @@ export function ActionButtons() {
     const isSignificant = significantCenterMovement || significantSizeChange;
     
     if (!isSignificant) {
-      Logger.log(`📍 Movement too small: center ${(maxCenterMovement * 100).toFixed(1)}%, size ${(maxSizeChange * 100).toFixed(1)}% - skipping recalculation`);
+      // Movement too small - skipping recalculation
     } else {
-      Logger.log(`📍 Significant movement: center ${(maxCenterMovement * 100).toFixed(1)}%, size ${(maxSizeChange * 100).toFixed(1)}% - will recalculate`);
+      Logger.log(`Map moved ${(maxCenterMovement * 100).toFixed(0)}% - recalculating`);
     }
     
     return isSignificant;
@@ -121,7 +121,7 @@ export function ActionButtons() {
   const handleFetchData = useCallback(async () => {
     // Check if data is already loaded (might have been loaded by DataLoader)
     if (state.data.geoJSON && dataLoadedRef.current) {
-      Logger.log('✅ Data already loaded, skipping fetch');
+      // Data already loaded, skipping fetch
       return;
     }
 
@@ -134,7 +134,7 @@ export function ActionButtons() {
     }
 
     dispatch({ type: 'SET_LOADING', payload: true });
-    Logger.log(`🚀 handleFetchData called - isDuckDBReady: ${isDuckDBReady}`);
+    Logger.log(`Loading data - DuckDB ready: ${isDuckDBReady}`);
     // No more status messages - only show loading spinner
     // dispatch({ 
     //   type: 'SET_STATUS', 
@@ -194,14 +194,14 @@ export function ActionButtons() {
           const geoJSON = await duckdbSpatial.getLocationsAsGeoJSON();
           if (geoJSON) {
             dispatch({ type: 'SET_GEOJSON', payload: geoJSON });
-            Logger.log('✅ GeoJSON data set for map display');
+            // GeoJSON data set for map display
           }
 
           setCanCalculate(true);
-          Logger.log('✅ About to setIsLoadedFromParquet(true) - Parquet load successful');
+          // Parquet load successful
           setIsLoadedFromParquet(true);
           dataLoadedRef.current = true; // Mark data as loaded and ready
-          Logger.log('✅ setIsLoadedFromParquet(true) called - data ready for calculations');
+          // Data ready for calculations
 
           setTimeout(() => {
             dispatch({ 
@@ -510,7 +510,7 @@ export function ActionButtons() {
     // Skip if a manual calculation happened recently (within 3 seconds)
     const timeSinceManualCalculation = Date.now() - lastManualCalculationRef.current;
     if (timeSinceManualCalculation < 3000) {
-      Logger.log(`⏳ Skipping auto-recalculate - manual calculation happened ${timeSinceManualCalculation}ms ago (cooling down)`);
+      // Skipping auto-recalculate - cooling down
       return;
     }
 
@@ -538,7 +538,7 @@ export function ActionButtons() {
       
       // Clear any existing timer
       if (recalculateTimerRef.current) {
-        Logger.log('⏳ Cancelling previous auto-recalculate timer');
+        // Cancelling previous timer
         clearTimeout(recalculateTimerRef.current);
       }
       

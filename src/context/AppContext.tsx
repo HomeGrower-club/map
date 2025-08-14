@@ -13,7 +13,9 @@ const initialState: AppState = {
     restrictedLocations: null,
     geoJSON: null,
     bufferZones: null,
-    eligibleZones: null
+    eligibleZones: null,
+    dataLoaded: false,
+    dataLoadError: null
   },
   processing: {
     isLoading: false,
@@ -67,6 +69,18 @@ function appReducer(state: AppState, action: AppAction): AppState {
         data: { ...state.data, eligibleZones: action.payload }
       };
     
+    case 'SET_DATA_LOADED':
+      return {
+        ...state,
+        data: { ...state.data, dataLoaded: action.payload }
+      };
+    
+    case 'SET_DATA_LOAD_ERROR':
+      return {
+        ...state,
+        data: { ...state.data, dataLoadError: action.payload }
+      };
+    
     case 'SET_LOADING':
       return {
         ...state,
@@ -118,7 +132,9 @@ function appReducer(state: AppState, action: AppAction): AppState {
           restrictedLocations: null,
           geoJSON: null,
           bufferZones: null,
-          eligibleZones: null
+          eligibleZones: null,
+          dataLoaded: false,
+          dataLoadError: null
         },
         processing: {
           ...state.processing,

@@ -17,7 +17,6 @@ export function AutoCalculator() {
   
   const [hasCalculatedOnce, setHasCalculatedOnce] = useState(false);
   const [hasTriggeredAutoCalculate, setHasTriggeredAutoCalculate] = useState(false);
-  const [isDataLoaded, setIsDataLoaded] = useState(false);
   
   const previousBoundsRef = useRef<string | null>(null);
   const previousZoomRef = useRef<number>(13);
@@ -25,13 +24,8 @@ export function AutoCalculator() {
   const isCalculatingRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   
-  // Check if data is loaded by checking GeoJSON state
-  useEffect(() => {
-    if (state.data.geoJSON && state.data.geoJSON.features && state.data.geoJSON.features.length > 0) {
-      Logger.log('AutoCalculator: Data loaded');
-      setIsDataLoaded(true);
-    }
-  }, [state.data.geoJSON]);
+  // Use global data loaded state
+  const isDataLoaded = state.data.dataLoaded;
   
   // Helper function to check if map movement is significant enough to recalculate
   const isSignificantMovement = useCallback((newBoundsString: string, previousBoundsString: string | null, currentZoom: number): boolean => {
@@ -86,7 +80,7 @@ export function AutoCalculator() {
   }, []);
   
   // Calculate zones function
-  const handleCalculateZones = useCallback(async (isAutoRecalculate = false) => {
+  const handleCalculateZones = useCallback(async (_isAutoRecalculate = false) => {
     const minZoomForCalculation = 15;
     
     // Check minimum zoom level

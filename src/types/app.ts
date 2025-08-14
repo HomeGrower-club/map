@@ -14,6 +14,8 @@ export interface AppState {
     geoJSON: FeatureCollection | null;
     bufferZones: Feature | null;
     eligibleZones: Feature | null;
+    dataLoaded: boolean;
+    dataLoadError: string | null;
   };
   processing: {
     isLoading: boolean;
@@ -40,6 +42,8 @@ export type AppAction =
   | { type: 'SET_GEOJSON'; payload: FeatureCollection }
   | { type: 'SET_BUFFER_ZONES'; payload: Feature }
   | { type: 'SET_ELIGIBLE_ZONES'; payload: Feature }
+  | { type: 'SET_DATA_LOADED'; payload: boolean }
+  | { type: 'SET_DATA_LOAD_ERROR'; payload: string | null }
   | { type: 'SET_LOADING'; payload: boolean }
   | { type: 'SET_PROGRESS'; payload: { progress: number; message: string } }
   | { type: 'SET_PROCESSING_MODE'; payload: ProcessingMode }

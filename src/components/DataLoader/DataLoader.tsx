@@ -21,7 +21,8 @@ export function DataLoader() {
   // Auto-load data when DuckDB is ready
   useEffect(() => {
     const loadData = async () => {
-      if (!isDuckDBReady || hasTriggeredAutoLoad || state.processing.isLoading || dataLoadedRef.current) {
+      // Check if already loaded or loading
+      if (!isDuckDBReady || hasTriggeredAutoLoad || state.processing.isLoading || state.data.dataLoaded || dataLoadedRef.current) {
         return;
       }
 
@@ -80,7 +81,8 @@ export function DataLoader() {
           const geoJSON = await duckdbSpatial.getLocationsAsGeoJSON();
           dispatch({ type: 'SET_GEOJSON', payload: geoJSON });
 
-          // Mark data as loaded
+          // Mark data as loaded in global state
+          dispatch({ type: 'SET_DATA_LOADED', payload: true });
           dataLoadedRef.current = true;
           
           Logger.log(`Data loaded: ${locationCount} locations in ${elapsed}ms`);
@@ -94,6 +96,7 @@ export function DataLoader() {
           }, 1000);
         } else {
           // Parquet not available - show error
+          const errorMessage = parquetResult.error || 'Failed to load parquet';
           dispatch({ 
             type: 'SET_STATUS', 
             payload: { 
@@ -101,9 +104,11 @@ export function DataLoader() {
               type: 'error' 
             } 
           });
-          Logger.error('Parquet file not available', new Error('Failed to load parquet'));
+          dispatch({ type: 'SET_DATA_LOAD_ERROR', payload: errorMessage });
+          Logger.error('Parquet file not available:', errorMessage);
         }
       } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error loading data';
         dispatch({ 
           type: 'SET_STATUS', 
           payload: { 
@@ -111,6 +116,7 @@ export function DataLoader() {
             type: 'error' 
           } 
         });
+        dispatch({ type: 'SET_DATA_LOAD_ERROR', payload: errorMessage });
         Logger.error('Error loading data', error);
       } finally {
         dispatch({ type: 'SET_LOADING', payload: false });
@@ -125,7 +131,8 @@ export function DataLoader() {
   }, [
     isDuckDBReady, 
     hasTriggeredAutoLoad, 
-    state.processing.isLoading, 
+    state.processing.isLoading,
+    state.data.dataLoaded,
     hasBounds,
     dispatch
   ]);
