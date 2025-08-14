@@ -539,7 +539,7 @@ export class DuckDBSpatialService {
     const count = countResult.toArray()[0].count;
     
     Logger.log('Loaded locations:', count);
-    Logger.groupEnd('Loading OSM data into DuckDB');
+    Logger.groupEnd();
   }
 
   /**
@@ -756,7 +756,7 @@ export class DuckDBSpatialService {
       Logger.log('Zones calculated successfully');
       Logger.log(`Processing time: ${processingTime.toFixed(2)}ms`);
       Logger.log(`Locations processed: ${data?.location_count || 0}`);
-      Logger.groupEnd('Calculating zones with DuckDB (Optimized)');
+      Logger.groupEnd();
 
       return {
         restrictedZones,
@@ -768,7 +768,7 @@ export class DuckDBSpatialService {
       };
     } catch (error) {
       Logger.error('Error calculating zones with DuckDB', error);
-      Logger.groupEnd('Calculating zones with DuckDB (Optimized)');
+      Logger.groupEnd();
       throw error;
     }
   }

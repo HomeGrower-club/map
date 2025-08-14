@@ -42,23 +42,20 @@ export function LegalDisclaimer() {
               </p>
               <div className="text-xs text-muted-foreground space-y-2 pt-2 border-t border-border">
                 <p>
-                  <strong>Important:</strong> This visualization tool is provided for informational purposes only. 
-                  The spatial calculations and buffer zones shown are approximate and based on available OpenStreetMap data.
+                  <strong>{m.disclaimer_important_label()}</strong> {m.disclaimer_spatial_info()}
                 </p>
                 <p>
-                  Actual cannabis club regulations may include additional requirements not reflected in this tool, 
-                  such as zoning restrictions, licensing requirements, local ordinances, and other legal considerations.
+                  {m.disclaimer_regulation_info()}
                 </p>
                 <p>
-                  Data accuracy and completeness cannot be guaranteed. Users should independently verify all 
-                  information and consult with qualified legal professionals before making any business or legal decisions.
+                  {m.disclaimer_accuracy_info()}
                 </p>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogAction onClick={() => setOpen(false)}>
-              I Understand
+              {m.disclaimer_understand_button()}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

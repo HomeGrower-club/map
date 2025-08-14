@@ -32,6 +32,9 @@ const OVERPASS_QUERY = `
   
   node["amenity"="kindergarten"](${BERLIN_BOUNDS.south},${BERLIN_BOUNDS.west},${BERLIN_BOUNDS.north},${BERLIN_BOUNDS.east});
   way["amenity"="kindergarten"](${BERLIN_BOUNDS.south},${BERLIN_BOUNDS.west},${BERLIN_BOUNDS.north},${BERLIN_BOUNDS.east});
+
+  node["leisure"="fitness_centre"](${BERLIN_BOUNDS.south},${BERLIN_BOUNDS.west},${BERLIN_BOUNDS.north},${BERLIN_BOUNDS.east});
+  way["leisure"="fitness_centre"](${BERLIN_BOUNDS.south},${BERLIN_BOUNDS.west},${BERLIN_BOUNDS.north},${BERLIN_BOUNDS.east});
   
   node["leisure"="playground"](${BERLIN_BOUNDS.south},${BERLIN_BOUNDS.west},${BERLIN_BOUNDS.north},${BERLIN_BOUNDS.east});
   way["leisure"="playground"](${BERLIN_BOUNDS.south},${BERLIN_BOUNDS.west},${BERLIN_BOUNDS.north},${BERLIN_BOUNDS.east});

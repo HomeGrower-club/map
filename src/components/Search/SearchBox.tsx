@@ -4,7 +4,7 @@ import L from 'leaflet';
 import { duckdbSpatial } from '../../services/duckdbSpatial';
 import { geocodingService, type GeocodingResult } from '../../services/geocodingService';
 import { Logger } from '../../utils/logger';
-import './SearchBox.css';
+import * as m from '../../paraglide/messages.js';
 
 interface LocalSearchResult {
   id: number;
@@ -210,14 +210,15 @@ export function SearchBox() {
   const getTypeDisplay = (result: SearchResult): { icon: string; text: string } => {
     if (result.source === 'local') {
       const typeMap: Record<string, { icon: string; text: string }> = {
-        school: { icon: '🏫', text: 'School (Restricted)' },
-        kindergarten: { icon: '👶', text: 'Kindergarten (Restricted)' },
-        playground: { icon: '🎮', text: 'Playground (Restricted)' },
-        community_centre: { icon: '🏢', text: 'Community Centre (Restricted)' },
-        sports_centre: { icon: '⚽', text: 'Sports Centre (Restricted)' },
-        other: { icon: '⚠️', text: 'Restricted Location' }
+        school: { icon: '🏫', text: `${m.location_type_school()} (${m.restricted_areas_label()})` },
+        kindergarten: { icon: '👶', text: `${m.location_type_kindergarten()} (${m.restricted_areas_label()})` },
+        playground: { icon: '🎮', text: `${m.location_type_playground()} (${m.restricted_areas_label()})` },
+        community_centre: { icon: '🏢', text: `${m.location_type_community_centre()} (${m.restricted_areas_label()})` },
+        sports_centre: { icon: '⚽', text: `${m.location_type_sports_centre()} (${m.restricted_areas_label()})` },
+        fitness_centre: { icon: '💪', text: `${m.location_type_fitness_centre()} (${m.restricted_areas_label()})` },
+        other: { icon: '⚠️', text: `${m.location_type_other()} (${m.restricted_areas_label()})` }
       };
-      return typeMap[result.type] || { icon: '⚠️', text: 'Restricted Location' };
+      return typeMap[result.type] || { icon: '⚠️', text: `${m.location_type_other()} (${m.restricted_areas_label()})` };
     } else {
       const geocoded = result as GeocodedSearchResult;
       const classMap: Record<string, { icon: string; text: string }> = {
@@ -238,23 +239,23 @@ export function SearchBox() {
   };
 
   return (
-    <div className="search-container">
-      <div className="search-box">
+    <div className="absolute top-2.5 sm:top-2.5 left-1/2 transform -translate-x-1/2 z-[1000] w-[95%] sm:w-[90%] max-w-sm md:max-w-md">
+      <div className="relative w-full">
         <input
           ref={inputRef}
           type="text"
-          placeholder="Search for schools, playgrounds..."
+          placeholder={m.search_placeholder()}
           value={query}
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
           onFocus={() => results.length > 0 && setShowResults(true)}
-          className="search-input"
+          className="w-full py-3 px-4 pr-10 text-sm sm:text-sm text-base border-2 border-border rounded-lg bg-background shadow-lg transition-all duration-200 outline-none focus:border-primary focus:shadow-xl placeholder:text-muted-foreground"
         />
-        {isSearching && <div className="search-spinner">🔍</div>}
+        {isSearching && <div className="absolute right-3 top-1/2 transform -translate-y-1/2 animate-spin">🔍</div>}
       </div>
 
       {showResults && results.length > 0 && (
-        <div ref={resultsRef} className="search-results">
+        <div ref={resultsRef} className="absolute top-full left-0 right-0 bg-background border border-border rounded-lg shadow-xl max-h-96 overflow-y-auto mt-1 z-[1001]">
           {results.map((result, index) => {
             const typeDisplay = getTypeDisplay(result);
             const displayName = result.source === 'local' 
@@ -264,20 +265,24 @@ export function SearchBox() {
             return (
               <div
                 key={`${result.source}-${result.osm_id}-${index}`}
-                className={`search-result-item ${index === selectedIndex ? 'selected' : ''} ${result.source === 'local' ? 'restricted' : ''}`}
+                className={`p-2.5 px-4 cursor-pointer flex items-center gap-3 border-b border-border last:border-b-0 transition-colors duration-150 hover:bg-muted/50 ${
+                  index === selectedIndex ? 'bg-muted/50' : ''
+                } ${
+                  result.source === 'local' ? 'bg-red-50/50 hover:bg-red-50/80' : ''
+                }`}
                 onClick={() => handleResultClick(result)}
                 onMouseEnter={() => setSelectedIndex(index)}
               >
-                <div className="result-type" title={typeDisplay.text}>
+                <div className="text-lg flex-shrink-0" title={typeDisplay.text}>
                   {typeDisplay.icon}
                 </div>
-                <div className="result-details">
-                  <div className="result-name">
+                <div className="flex-1 overflow-hidden">
+                  <div className="font-medium text-foreground whitespace-nowrap overflow-hidden text-ellipsis">
                     {result.source === 'local' ? result.name : (result as GeocodedSearchResult).name || displayName?.split(',')[0]}
                   </div>
-                  <div className="result-address">
+                  <div className="text-xs text-muted-foreground whitespace-nowrap overflow-hidden text-ellipsis mt-0.5">
                     {result.source === 'local' ? (
-                      <span className="restricted-label">⚠️ Restricted Zone</span>
+                      <span className="text-red-600 font-medium text-xs">{m.restricted_zone_label()}</span>
                     ) : (
                       displayName && displayName.split(',').slice(1).join(',').trim()
                     )}
@@ -290,8 +295,8 @@ export function SearchBox() {
       )}
 
       {showResults && query.trim() && results.length === 0 && !isSearching && (
-        <div ref={resultsRef} className="search-results">
-          <div className="no-results">No results found for "{query}"</div>
+        <div ref={resultsRef} className="absolute top-full left-0 right-0 bg-background border border-border rounded-lg shadow-xl mt-1 z-[1001]">
+          <div className="py-5 px-4 text-center text-muted-foreground italic">{m.search_no_results({ query })}</div>
         </div>
       )}
     </div>

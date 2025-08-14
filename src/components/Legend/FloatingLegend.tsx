@@ -5,11 +5,11 @@ import { School, Shield, CheckCircle } from 'lucide-react';
 export function FloatingLegend() {
   return (
     <Card className="absolute bottom-4 right-4 w-[200px] bg-card/95 backdrop-blur-sm z-[1000]">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-sm">Map Legend</CardTitle>
+      <CardHeader>
+        <CardTitle>Map Legend</CardTitle>
       </CardHeader>
       
-      <CardContent className="space-y-3">
+      <CardContent>
         <div className="flex items-center gap-3">
           <div className="w-4 h-4 bg-red-500/40 border border-red-500/60 rounded-sm flex-shrink-0" />
           <div className="flex items-center gap-2 flex-1">
