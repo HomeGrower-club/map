@@ -78,14 +78,28 @@ export function DataLoader() {
           });
 
           // Get location points as GeoJSON for map display
-          const geoJSON = await duckdbSpatial.getLocationsAsGeoJSON();
-          dispatch({ type: 'SET_GEOJSON', payload: geoJSON });
+          try {
+            const geoJSON = await duckdbSpatial.getLocationsAsGeoJSON();
+            Logger.info(`DataLoader: GeoJSON loaded with ${geoJSON.features.length} features`);
+            dispatch({ type: 'SET_GEOJSON', payload: geoJSON });
 
-          // Mark data as loaded in global state
-          dispatch({ type: 'SET_DATA_LOADED', payload: true });
-          dataLoadedRef.current = true;
-          
-          Logger.log(`Data loaded: ${locationCount} locations in ${elapsed}ms`);
+            // Mark data as loaded in global state
+            dispatch({ type: 'SET_DATA_LOADED', payload: true });
+            dataLoadedRef.current = true;
+            
+            Logger.info(`Data loaded: ${locationCount} locations in ${elapsed}ms`);
+          } catch (geoJsonError) {
+            Logger.error('Failed to get GeoJSON data', geoJsonError);
+            dispatch({ 
+              type: 'SET_STATUS', 
+              payload: { 
+                message: 'Failed to load location data for display', 
+                type: 'error' 
+              } 
+            });
+            // Don't mark as loaded if GeoJSON failed
+            dispatch({ type: 'SET_DATA_LOADED', payload: false });
+          }
           
           // Clear status message after a moment
           setTimeout(() => {

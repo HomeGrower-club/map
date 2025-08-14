@@ -3,6 +3,7 @@ import { GeoJSON, useMap } from 'react-leaflet';
 import L, { type PathOptions } from 'leaflet';
 import { useApp } from '../../context/AppContext';
 import { Config } from '../../utils/constants';
+import { Logger } from '../../utils/logger';
 import * as m from '../../paraglide/messages';
 
 // Helper function to get localized location type names
@@ -29,6 +30,7 @@ export function MapLayers() {
   const { state } = useApp();
   const map = useMap();
   const [zoneUpdateKey, setZoneUpdateKey] = useState(0);
+  const [geoJSONKey, setGeoJSONKey] = useState(0);
 
   // Create custom pane for location markers with higher z-index
   useEffect(() => {
@@ -55,6 +57,25 @@ export function MapLayers() {
     }
   }, [state.data, map]);
 
+  // Debug logging for GeoJSON data
+  useEffect(() => {
+    if (state.data.geoJSON) {
+      Logger.info(`MapLayers: GeoJSON has ${state.data.geoJSON.features.length} features`);
+      Logger.info(`MapLayers: dataLoaded=${state.data.dataLoaded}`);
+    } else {
+      Logger.info('MapLayers: No GeoJSON data available');
+    }
+  }, [state.data.geoJSON, state.data.dataLoaded]);
+
+  // Force re-render when GeoJSON data changes by updating the key
+  useEffect(() => {
+    if (state.data.geoJSON && state.data.geoJSON.features.length > 0) {
+      // Use timestamp to ensure unique key for proper React reconciliation in production
+      setGeoJSONKey(Date.now());
+      Logger.info('MapLayers: Updated GeoJSON key to force re-render');
+    }
+  }, [state.data.geoJSON]);
+
   return (
     <>
       {/* Restricted Zones (Red areas) - Render first so they appear below */}
@@ -78,7 +99,7 @@ export function MapLayers() {
       {/* Sensitive Locations (Blue markers) - Render last so they appear on top and remain clickable */}
       {state.data.dataLoaded && state.data.geoJSON && state.data.geoJSON.features && state.data.geoJSON.features.length > 0 && (
         <GeoJSON
-          key={`sensitive-locations-${state.data.geoJSON.features.length}`} // Force re-render when data changes
+          key={`sensitive-locations-${geoJSONKey}`} // Use timestamp key for proper production rendering
           data={state.data.geoJSON}
           pointToLayer={(_feature, latlng) => {
             // Ensure the custom pane exists before creating markers

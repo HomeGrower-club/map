@@ -291,6 +291,8 @@ export class DuckDBSpatialService {
   async getLocationsAsGeoJSON(): Promise<FeatureCollection> {
     if (!this.conn) throw new Error('Database not initialized');
     
+    Logger.info('Converting locations to GeoJSON...');
+    
     try {
       const result = await this.conn.query(`
         SELECT 
@@ -305,6 +307,14 @@ export class DuckDBSpatialService {
       `);
       
       const rows = result.toArray();
+      
+      // Log the row count for debugging
+      Logger.info(`GeoJSON query returned ${rows.length} rows`);
+      
+      // If no rows, this is a problem
+      if (rows.length === 0) {
+        Logger.error('No rows returned from GeoJSON query', new Error('Empty result set'));
+      }
       
       const features = rows.map(row => {
         const tags = typeof row.tags === 'string' ? JSON.parse(row.tags) : row.tags;
@@ -323,13 +333,17 @@ export class DuckDBSpatialService {
         };
       });
       
+      Logger.info(`Created GeoJSON with ${features.length} features`);
+      
       return {
         type: 'FeatureCollection' as const,
         features
       };
     } catch (error) {
-      Logger.error('Error converting to GeoJSON', error);
-      return { type: 'FeatureCollection' as const, features: [] };
+      // Make sure this error is visible in production
+      Logger.error('Failed to convert locations to GeoJSON', error);
+      // Re-throw to make failures visible upstream
+      throw error;
     }
   }
 
