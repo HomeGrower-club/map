@@ -376,34 +376,29 @@ export class DuckDBSpatialService {
         // Drop existing table if it exists
         await this.conn.query(`DROP TABLE IF EXISTS sensitive_locations`);
 
-      // Register the Parquet file with DuckDB WASM
-      // This is necessary for the browser to access the file via HTTP
+      // Get the Parquet file URL (always absolute thanks to getParquetUrl)
       const parquetUrl = this.getParquetUrl();
       
-      // Use a consistent internal name for the registered file
-      const internalFileName = 'berlin-locations.parquet';
-      
-      // Register the file with DuckDB
-      await this.db.registerFileURL(
-        internalFileName,  // Internal name for DuckDB
-        parquetUrl,  // URL path to fetch from (local or CDN)
-        duckdb.DuckDBDataProtocol.HTTP,  // Use HTTP protocol
-        false  // Don't cache the file registration
-      );
-      
-      Logger.log(`Loading Parquet from: ${parquetUrl}`);
+      // Log the URL we're trying to load (info will show in production)
+      Logger.info(`Loading Parquet from URL: ${parquetUrl}`);
 
-      // Now load the Parquet file into a table
+      // DuckDB WASM can load files directly from HTTP/HTTPS URLs
       // Since getParquetUrl() now always returns absolute URLs,
-      // we can always use the URL directly in the query
+      // we can use the URL directly without registration
       
       // Escape single quotes in the URL to prevent SQL injection
       const escapedUrl = parquetUrl.replace(/'/g, "''");
       
-      await this.conn.query(`
-        CREATE TABLE sensitive_locations AS 
-        SELECT * FROM read_parquet('${escapedUrl}')
-      `);
+      try {
+        await this.conn.query(`
+          CREATE TABLE sensitive_locations AS 
+          SELECT * FROM read_parquet('${escapedUrl}')
+        `);
+      } catch (queryError) {
+        // Add context to the error for better debugging in production
+        Logger.error(`Failed to load parquet from URL: ${parquetUrl}`, queryError);
+        throw queryError;
+      }
       
       // Verify data was loaded
       const parquetCountResult = await this.conn.query(
@@ -455,7 +450,7 @@ export class DuckDBSpatialService {
       const count = Number(countResult.toArray()[0].count); // Convert BigInt to Number
 
       this.loadedFromParquet = true;
-      Logger.log(`Loaded ${count} locations from Parquet`);
+      Logger.info(`Successfully loaded ${count} locations from Parquet`);
       Logger.groupEnd();
 
       if (progressCallback) {

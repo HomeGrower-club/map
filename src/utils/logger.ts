@@ -49,10 +49,27 @@ class LoggerClass {
   }
 
   /**
+   * Info log for important production messages
+   */
+  info(message: string, data?: unknown): void {
+    // Always log info messages, but with different formatting
+    if (this.isDevelopment) {
+      console.log(`ℹ️ ${message}`, data || '');
+    } else {
+      console.log(`[INFO] ${message}`, data || '');
+    }
+  }
+
+  /**
    * Error log for critical issues
    */
   error(message: string, error: Error | unknown): void {
-    console.error(`❌ ${message}`, error);
+    // In production, use clean formatting without emojis
+    if (this.isDevelopment) {
+      console.error(`❌ ${message}`, error);
+    } else {
+      console.error(`[ERROR] ${message}`, error);
+    }
   }
 }
 
