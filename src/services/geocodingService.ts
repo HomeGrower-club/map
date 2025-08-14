@@ -101,7 +101,9 @@ export class GeocodingService {
       // Clear old cache entries if too many
       if (this.searchCache.size > 100) {
         const firstKey = this.searchCache.keys().next().value;
-        this.searchCache.delete(firstKey);
+        if (firstKey) {
+          this.searchCache.delete(firstKey);
+        }
       }
 
       Logger.log(`Geocoding found ${results.length} results for "${query}"`);

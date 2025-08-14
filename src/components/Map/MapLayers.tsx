@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { GeoJSON, useMap } from 'react-leaflet';
 import L, { type PathOptions } from 'leaflet';
 import { useApp } from '../../context/AppContext';
@@ -32,7 +32,7 @@ export function MapLayers() {
         <GeoJSON
           key="sensitive-locations"
           data={state.data.geoJSON}
-          pointToLayer={(feature, latlng) => {
+          pointToLayer={(_feature, latlng) => {
             return L.circleMarker(latlng, {
               radius: Config.styles.sensitiveLocation.radius,
               fillColor: Config.styles.sensitiveLocation.fillColor,

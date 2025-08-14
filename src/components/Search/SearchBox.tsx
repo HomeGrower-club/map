@@ -1,7 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useMap } from 'react-leaflet';
 import L from 'leaflet';
-import { useApp } from '../../context/AppContext';
 import { duckdbSpatial } from '../../services/duckdbSpatial';
 import { geocodingService, type GeocodingResult } from '../../services/geocodingService';
 import { Logger } from '../../utils/logger';
@@ -14,11 +13,13 @@ interface LocalSearchResult {
   type: string;
   lat: number;
   lon: number;
-  tags: any;
+  tags: Record<string, string>;
   source: 'local';
 }
 
-interface GeocodedSearchResult extends GeocodingResult {
+interface GeocodedSearchResult extends Omit<GeocodingResult, 'lat' | 'lon'> {
+  lat: number;
+  lon: number;
   source: 'geocoded';
 }
 
@@ -34,7 +35,7 @@ export function SearchBox() {
   const resultsRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const map = useMap();
-  const { state, dispatch } = useApp();
+  // const { state } = useApp(); // Unused for now
 
   // Search with debounce
   const performSearch = useCallback(async (searchQuery: string) => {
@@ -113,8 +114,8 @@ export function SearchBox() {
     setQuery(locationName);
 
     // Pan and zoom to the location
-    const lat = result.source === 'local' ? result.lat : parseFloat((result as GeocodedSearchResult).lat);
-    const lon = result.source === 'local' ? result.lon : parseFloat((result as GeocodedSearchResult).lon);
+    const lat = result.lat;
+    const lon = result.lon;
     
     map.flyTo([lat, lon], 16, {
       duration: 1

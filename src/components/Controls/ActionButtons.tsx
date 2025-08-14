@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { overpassApi } from '../../services/overpassApi';
 import { duckdbSpatial } from '../../services/duckdbSpatial';
@@ -7,6 +7,21 @@ import { useDuckDBSpatial } from '../../hooks/useDuckDBSpatial';
 import { Logger } from '../../utils/logger';
 import { DEBUG_MODE } from '../../utils/debugMode';
 import { ConfirmDialog } from '../Dialogs/ConfirmDialog';
+import { Button } from '../ui/button';
+import { Card, CardContent } from '../ui/card';
+import { Badge } from '../ui/badge';
+import { 
+  Loader2, 
+  Download, 
+  RefreshCw, 
+  Calculator, 
+  RotateCcw, 
+  Database,
+  Settings,
+  Trash2
+} from 'lucide-react';
+import { Checkbox } from '../ui/checkbox';
+import { Label } from '../ui/label';
 
 export function ActionButtons() {
   const { state, dispatch } = useApp();
@@ -206,7 +221,7 @@ export function ActionButtons() {
           await duckdbSpatial.ejectParquetData();
         }
 
-        await duckdbSpatial.loadOSMData(osmData, (message) => {
+        await duckdbSpatial.loadOSMData(osmData, () => {
           dispatch({ 
             type: 'SET_PROGRESS', 
             payload: { progress: 0, message: 'Loading...' } 
@@ -311,7 +326,7 @@ export function ActionButtons() {
         type: 'SET_STATUS', 
         payload: { 
           message: `Please zoom in ${zoomText} to see available locations`, 
-          type: 'warning' 
+          type: 'info' 
         } 
       });
       return;
@@ -611,46 +626,53 @@ export function ActionButtons() {
       
       {/* Manual control buttons - only in debug mode */}
       {DEBUG_MODE && (
-        <div className="control-group">
-          <button
-            id="fetch-data"
+        <div className="space-y-2">
+          <Button
             onClick={() => handleFetchData(false)}
             disabled={state.processing.isLoading}
+            className="w-full"
+            variant="outline"
           >
+            <Download className="w-4 h-4 mr-2" />
             Load Restricted Locations
-          </button>
+          </Button>
         </div>
       )}
       
       {/* User-friendly status for non-debug mode */}
       {!DEBUG_MODE && (
-        <div className="control-group" style={{
-          background: '#f8f9fa',
-          padding: '12px',
-          borderRadius: '6px',
-          border: '1px solid #e9ecef',
-          textAlign: 'center'
-        }}>
+        <div className="text-center p-3 bg-muted/50 rounded-lg border border-border">
           {!isDuckDBReady ? (
-            <div style={{ color: '#6c757d', fontSize: '14px' }}>
-              🔄 Getting things ready...
+            <div className="flex items-center justify-center gap-2 text-sm">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span>Getting things ready...</span>
             </div>
           ) : !dataLoadedRef.current ? (
-            <div style={{ color: '#0056b3', fontSize: '14px' }}>
-              📍 Finding schools, playgrounds and community centers...
+            <div className="flex items-center justify-center gap-2 text-sm">
+              <Download className="w-4 h-4" />
+              <span>Finding schools, playgrounds and community centers...</span>
             </div>
           ) : state.map.zoom < 15 ? (
-            <div style={{ color: '#856404', fontSize: '14px' }}>
-              🔍 Zoom in 2 more times to see available locations<br/>
-              <small style={{ color: '#6c757d' }}>(Need closer view to show detailed results)</small>
+            <div className="space-y-1">
+              <div className="flex items-center justify-center gap-2 text-sm">
+                <Database className="w-4 h-4" />
+                <span>Zoom in 2 more times to see available locations</span>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                (Need closer view to show detailed results)
+              </div>
             </div>
           ) : state.processing.isLoading ? (
-            <div style={{ color: '#28a745', fontSize: '14px' }}>
-              ⚙️ Finding suitable locations for cannabis clubs...
+            <div className="flex items-center justify-center gap-2 text-sm">
+              <Calculator className="w-4 h-4" />
+              <span>Finding suitable locations for cannabis clubs...</span>
             </div>
           ) : (
-            <div style={{ color: '#28a745', fontSize: '14px' }}>
-              ✅ Ready! Move around the map to explore different areas.
+            <div className="flex items-center justify-center gap-2 text-sm text-green-600">
+              <Badge variant="default" className="bg-green-500">
+                Ready!
+              </Badge>
+              <span>Move around the map to explore different areas.</span>
             </div>
           )}
         </div>
@@ -658,155 +680,142 @@ export function ActionButtons() {
       
       {/* Fresh data button - only in debug mode when loaded from Parquet */}
       {DEBUG_MODE && isLoadedFromParquet && (
-        <div className="control-group">
-          <button
-            onClick={handleFreshDataClick}
-            disabled={state.processing.isLoading}
-            style={{ 
-              background: '#ffc107',
-              color: '#000',
-              fontSize: '13px',
-              padding: '8px'
-            }}
-            title="Load fresh data from OpenStreetMap (current session only)"
-          >
-            🔄 Load Fresh Data (Session Only)
-          </button>
-        </div>
+        <Button
+          onClick={handleFreshDataClick}
+          disabled={state.processing.isLoading}
+          variant="outline"
+          className="w-full bg-yellow-100 border-yellow-300 text-yellow-800 hover:bg-yellow-200"
+          size="sm"
+          title="Load fresh data from OpenStreetMap (current session only)"
+        >
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Load Fresh Data (Session Only)
+        </Button>
       )}
       
       {/* Force refresh button - only in debug mode */}
       {DEBUG_MODE && (
-        <div className="control-group">
-          <button
-            id="force-refresh"
-            onClick={() => handleFetchData(true)}
-            disabled={state.processing.isLoading}
-            style={{ 
-              background: '#6c757d', 
-              fontSize: '12px',
-              padding: '6px'
-            }}
-            title="Force refresh from Overpass API (ignores cache)"
-          >
-            🔄 Force Refresh from API
-          </button>
-        </div>
+        <Button
+          onClick={() => handleFetchData(true)}
+          disabled={state.processing.isLoading}
+          variant="secondary"
+          size="sm"
+          className="w-full"
+          title="Force refresh from Overpass API (ignores cache)"
+        >
+          <RefreshCw className="w-3 h-3 mr-2" />
+          Force Refresh from API
+        </Button>
       )}
       
       {/* Manual calculate button - only in debug mode */}
       {DEBUG_MODE && (
-        <div className="control-group">
-          <button
-            id="calculate-zones"
-            onClick={handleCalculateZones}
-            disabled={state.processing.isLoading || !canCalculate || state.map.zoom < 15}
-            title={
-              state.map.zoom < 15 
-                ? `Please zoom in ${15 - state.map.zoom === 1 ? 'one more time' : `${15 - state.map.zoom} more times`} to see detailed results`
-                : !canCalculate
-                ? 'Please wait while we find schools and playgrounds'
-                : 'Find suitable locations for cannabis clubs'
-            }
-          >
-            Calculate Eligible Zones
-          </button>
-        </div>
+        <Button
+          onClick={() => handleCalculateZones()}
+          disabled={state.processing.isLoading || !canCalculate || state.map.zoom < 15}
+          className="w-full"
+          title={
+            state.map.zoom < 15 
+              ? `Please zoom in ${15 - state.map.zoom === 1 ? 'one more time' : `${15 - state.map.zoom} more times`} to see detailed results`
+              : !canCalculate
+              ? 'Please wait while we find schools and playgrounds'
+              : 'Find suitable locations for cannabis clubs'
+          }
+        >
+          <Calculator className="w-4 h-4 mr-2" />
+          Calculate Eligible Zones
+        </Button>
       )}
       
       {/* Auto-recalculate toggle - only in debug mode */}
       {DEBUG_MODE && (
-        <div className="control-group">
-          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
-            <input
-              type="checkbox"
-              checked={autoRecalculate}
-              onChange={(e) => setAutoRecalculate(e.target.checked)}
-              disabled={!hasCalculatedOnce}
-            />
-            <span>Auto-recalculate on map movement</span>
-          </label>
-          {!hasCalculatedOnce && (
-            <div style={{ fontSize: '11px', color: '#666', marginTop: '4px' }}>
-              (Calculate zones once to enable)
+        <Card>
+          <CardContent className="pt-4 pb-4">
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="auto-recalculate"
+                checked={autoRecalculate}
+                onCheckedChange={(checked) => setAutoRecalculate(checked === true)}
+                disabled={!hasCalculatedOnce}
+              />
+              <Label 
+                htmlFor="auto-recalculate" 
+                className="text-sm font-normal cursor-pointer"
+              >
+                Auto-recalculate on map movement
+              </Label>
             </div>
-          )}
-        </div>
+            {!hasCalculatedOnce && (
+              <div className="text-xs text-muted-foreground mt-2">
+                (Calculate zones once to enable)
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
       
       {/* Clear All - show compact version for users, full version for debug */}
-      <div className="control-group">
-        <button
-          id="clear-all"
-          onClick={handleClearAll}
-          disabled={state.processing.isLoading}
-          style={{
-            ...(DEBUG_MODE ? {} : {
-              fontSize: '12px',
-              padding: '6px 12px',
-              background: '#6c757d',
-              color: 'white'
-            })
-          }}
-        >
-          {DEBUG_MODE ? 'Clear All' : '🔄 Reset'}
-        </button>
-      </div>
+      <Button
+        onClick={handleClearAll}
+        disabled={state.processing.isLoading}
+        variant={DEBUG_MODE ? "destructive" : "secondary"}
+        size={DEBUG_MODE ? "default" : "sm"}
+        className="w-full"
+      >
+        <RotateCcw className="w-4 h-4 mr-2" />
+        {DEBUG_MODE ? 'Clear All' : 'Reset'}
+      </Button>
       
       {/* Cache Management Section - only in debug mode */}
       {DEBUG_MODE && (
-        <>
-          <div className="control-group" style={{ marginTop: '15px', borderTop: '1px solid #ddd', paddingTop: '10px' }}>
-            <button
+        <Card>
+          <CardContent className="pt-4 pb-4">
+            <Button
               onClick={() => setShowCacheOptions(!showCacheOptions)}
-              style={{ 
-                background: '#17a2b8',
-                fontSize: '13px',
-                padding: '6px'
-              }}
+              variant="outline"
+              size="sm"
+              className="w-full mb-4"
             >
-              📦 Cache Management {showCacheOptions ? '▼' : '▶'}
-            </button>
-          </div>
-          
-          {showCacheOptions && (
-        <>
-          {cacheStats && (
-            <div style={{ 
-              fontSize: '11px', 
-              color: '#666', 
-              padding: '8px',
-              background: '#f8f9fa',
-              borderRadius: '4px',
-              marginBottom: '8px'
-            }}>
-              <div>📊 Cache Statistics:</div>
-              <div>• Entries: {cacheStats.totalEntries}</div>
-              <div>• Size: {(cacheStats.totalSize / 1024).toFixed(1)} KB</div>
-              {cacheStats.oldestEntry && (
-                <div>• Oldest: {cacheStats.oldestEntry.toLocaleDateString()}</div>
-              )}
-              {cacheStats.newestEntry && (
-                <div>• Newest: {cacheStats.newestEntry.toLocaleDateString()}</div>
-              )}
-            </div>
-          )}
-          
-          <div className="control-group">
-            <button
-              onClick={handleClearCache}
-              style={{ 
-                background: '#dc3545',
-                fontSize: '12px',
-                padding: '6px'
-              }}
-            >
-              🗑️ Clear All Cache
-            </button>
-          </div>
-            </>
-          )}
-        </>
+              <Database className="w-4 h-4 mr-2" />
+              Cache Management {showCacheOptions ? '▼' : '▶'}
+            </Button>
+            
+            {showCacheOptions && (
+              <div className="space-y-4">
+                {cacheStats && (
+                  <Card>
+                    <CardContent className="pt-4 pb-4">
+                      <div className="text-xs space-y-1 text-muted-foreground">
+                        <div className="font-medium text-foreground mb-2 flex items-center gap-1">
+                          <Settings className="w-3 h-3" />
+                          Cache Statistics
+                        </div>
+                        <div>• Entries: {cacheStats.totalEntries}</div>
+                        <div>• Size: {(cacheStats.totalSize / 1024).toFixed(1)} KB</div>
+                        {cacheStats.oldestEntry && (
+                          <div>• Oldest: {cacheStats.oldestEntry.toLocaleDateString()}</div>
+                        )}
+                        {cacheStats.newestEntry && (
+                          <div>• Newest: {cacheStats.newestEntry.toLocaleDateString()}</div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+                
+                <Button
+                  onClick={handleClearCache}
+                  variant="destructive"
+                  size="sm"
+                  className="w-full"
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Clear All Cache
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
       
       {/* Fresh Data Warning Dialog */}

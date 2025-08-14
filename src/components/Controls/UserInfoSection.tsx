@@ -1,71 +1,87 @@
-import React from 'react';
 import { useApp } from '../../context/AppContext';
+import { Badge } from '../ui/badge';
+import { Separator } from '../ui/separator';
+import { School, MapPin, Users, Target } from 'lucide-react';
 
 export function UserInfoSection() {
   const { state } = useApp();
   
   return (
-    <div className="user-info-section">
-      {/* Current Settings Display */}
-      <div className="current-settings" style={{
-        background: '#f8f9fa',
-        padding: '12px',
-        borderRadius: '6px',
-        marginBottom: '15px',
-        border: '1px solid #e9ecef'
-      }}>
-        <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: '#495057' }}>
+    <div className="space-y-6">
+      {/* Safety Requirements */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 font-medium text-foreground">
+          <Target className="w-4 h-4 text-blue-600" />
           Safety Requirements
         </div>
-        <div style={{ fontSize: '13px', color: '#6c757d' }}>
-          Required Distance: <strong>{state.processing.bufferDistance} meters from restricted areas</strong>
+        <div className="pl-6 flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">Required Distance:</span>
+          <Badge variant="secondary" className="font-medium">
+            {state.processing.bufferDistance}m from restricted areas
+          </Badge>
         </div>
       </div>
 
-      {/* Information About POIs */}
-      <div className="poi-info" style={{
-        background: '#e7f3ff',
-        padding: '12px',
-        borderRadius: '6px',
-        marginBottom: '15px',
-        border: '1px solid #b3d9ff'
-      }}>
-        <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: '#0056b3' }}>
-          🏢 Where Cannabis Clubs Cannot Be Located
+      <Separator className="my-4" />
+
+      {/* Restricted Locations */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 font-medium text-foreground">
+          <MapPin className="w-4 h-4 text-red-600" />
+          Where Cannabis Clubs Cannot Be Located
         </div>
-        <div style={{ fontSize: '13px', color: '#0056b3', lineHeight: '1.4' }}>
-          Cannabis clubs must keep a safe distance from:
+        <div className="pl-6 space-y-3">
+          <div className="text-sm text-muted-foreground">
+            Cannabis clubs must keep a safe distance from:
+          </div>
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="flex items-center gap-2">
+              <School className="w-3 h-3 text-blue-500" />
+              <span>Schools</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Target className="w-3 h-3 text-green-500" />
+              <span>Playgrounds</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Users className="w-3 h-3 text-purple-500" />
+              <span>Community Centers</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Target className="w-3 h-3 text-orange-500" />
+              <span>Sports Centers</span>
+            </div>
+          </div>
         </div>
-        <ul style={{ 
-          fontSize: '12px', 
-          color: '#0056b3', 
-          margin: '6px 0 0 0', 
-          paddingLeft: '16px',
-          lineHeight: '1.3'
-        }}>
-          <li>🏫 Schools & Kindergartens</li>
-          <li>🎮 Playgrounds</li>
-          <li>🏛️ Community Centers</li>
-          <li>⚽ Sports Centers</li>
-        </ul>
       </div>
+
+      <Separator className="my-4" />
 
       {/* Instructions */}
-      <div className="instructions" style={{
-        background: '#fff3cd',
-        padding: '12px',
-        borderRadius: '6px',
-        marginBottom: '15px',
-        border: '1px solid #ffeaa7'
-      }}>
-        <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: '#856404' }}>
-          📋 How to Find Suitable Locations
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 font-medium text-foreground">
+          <MapPin className="w-4 h-4 text-green-600" />
+          How to Find Suitable Locations
         </div>
-        <div style={{ fontSize: '13px', color: '#856404', lineHeight: '1.4' }}>
-          1. Zoom in close to your area of interest<br/>
-          2. Suitable locations will automatically appear<br/>
-          3. <span style={{ color: '#28a745' }}>■</span> Green areas are where clubs can be located<br/>
-          4. <span style={{ color: '#dc3545' }}>■</span> Red areas are too close to restricted locations
+        <div className="pl-6 space-y-2 text-sm">
+          <div className="flex items-start gap-2">
+            <span className="font-medium text-muted-foreground">1.</span>
+            <span>Zoom in close to your area of interest</span>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="font-medium text-muted-foreground">2.</span>
+            <span>Suitable locations will automatically appear</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-muted-foreground">3.</span>
+            <Badge variant="default" className="bg-green-500 text-white">Green areas</Badge>
+            <span className="text-xs">are where clubs can be located</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-muted-foreground">4.</span>
+            <Badge variant="destructive">Red areas</Badge>
+            <span className="text-xs">are too close to restricted locations</span>
+          </div>
         </div>
       </div>
     </div>

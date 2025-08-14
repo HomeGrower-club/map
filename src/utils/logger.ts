@@ -18,7 +18,7 @@ class LoggerClass {
   /**
    * End log group and report elapsed time
    */
-  groupEnd(name: string): void {
+  groupEnd(_name: string): void {
     if (!this.isDevelopment) return;
     const elapsed = this.startTime ? (performance.now() - this.startTime).toFixed(2) : 0;
     console.log(`⏱️ Time elapsed: ${elapsed}ms`);

@@ -1,6 +1,5 @@
-import React, { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { MapContainer as LeafletMapContainer, TileLayer, useMap } from 'react-leaflet';
-import { LatLngBounds } from 'leaflet';
 import { useApp } from '../../context/AppContext';
 import { Config } from '../../utils/constants';
 import { MapLayers } from './MapLayers';

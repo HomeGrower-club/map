@@ -1,6 +1,6 @@
 import { LatLngBounds } from 'leaflet';
 import LZString from 'lz-string';
-import { OSMData } from '../types/osm';
+import type { OSMData } from '../types/osm';
 import { Logger } from '../utils/logger';
 
 /**

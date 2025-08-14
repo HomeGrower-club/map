@@ -1,90 +1,47 @@
-import React from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { Badge } from '../ui/badge';
+import { School, Shield, CheckCircle } from 'lucide-react';
 
 export function FloatingLegend() {
   return (
-    <div 
-      className="floating-legend"
-      style={{
-        position: 'absolute',
-        bottom: '20px',
-        right: '20px',
-        background: 'rgba(255, 255, 255, 0.95)',
-        backdropFilter: 'blur(5px)',
-        padding: '12px',
-        borderRadius: '8px',
-        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-        border: '1px solid rgba(0, 0, 0, 0.1)',
-        fontSize: '12px',
-        zIndex: 1000,
-        minWidth: '180px'
-      }}
-    >
-      <div style={{ 
-        fontSize: '13px', 
-        fontWeight: '600', 
-        marginBottom: '8px', 
-        color: '#333',
-        borderBottom: '1px solid #eee',
-        paddingBottom: '6px'
-      }}>
-        Legend
-      </div>
+    <Card className="absolute bottom-4 right-4 w-[200px] bg-card/95 backdrop-blur-sm z-[1000]">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm">Map Legend</CardTitle>
+      </CardHeader>
       
-      <div className="legend-item" style={{ 
-        display: 'flex', 
-        alignItems: 'center', 
-        marginBottom: '6px' 
-      }}>
-        <div 
-          className="legend-color" 
-          style={{ 
-            width: '16px',
-            height: '16px',
-            background: 'rgba(220, 53, 69, 0.4)',
-            border: '1px solid rgba(220, 53, 69, 0.6)',
-            borderRadius: '3px',
-            marginRight: '8px'
-          }}
-        />
-        <span style={{ color: '#333', fontSize: '12px' }}>Restricted Areas</span>
-      </div>
-      
-      <div className="legend-item" style={{ 
-        display: 'flex', 
-        alignItems: 'center', 
-        marginBottom: '6px' 
-      }}>
-        <div 
-          className="legend-color" 
-          style={{ 
-            width: '16px',
-            height: '16px',
-            background: 'rgba(40, 167, 69, 0.4)',
-            border: '1px solid rgba(40, 167, 69, 0.6)',
-            borderRadius: '3px',
-            marginRight: '8px'
-          }}
-        />
-        <span style={{ color: '#333', fontSize: '12px' }}>Eligible Areas</span>
-      </div>
-      
-      <div className="legend-item" style={{ 
-        display: 'flex', 
-        alignItems: 'center', 
-        marginBottom: '0' 
-      }}>
-        <div 
-          className="legend-color" 
-          style={{ 
-            width: '16px',
-            height: '16px',
-            background: '#3388ff',
-            borderRadius: '50%',
-            marginRight: '8px'
-          }}
-        />
-        <span style={{ color: '#333', fontSize: '12px' }}>Sensitive Locations</span>
-      </div>
-    </div>
+      <CardContent className="space-y-3">
+        <div className="flex items-center gap-3">
+          <div className="w-4 h-4 bg-red-500/40 border border-red-500/60 rounded-sm flex-shrink-0" />
+          <div className="flex items-center gap-2 flex-1">
+            <Shield className="w-3 h-3 text-red-600" />
+            <span className="text-xs">Restricted Areas</span>
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-3">
+          <div className="w-4 h-4 bg-green-500/40 border border-green-500/60 rounded-sm flex-shrink-0" />
+          <div className="flex items-center gap-2 flex-1">
+            <CheckCircle className="w-3 h-3 text-green-600" />
+            <span className="text-xs">Eligible Areas</span>
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-3">
+          <div className="w-4 h-4 bg-blue-500 rounded-full flex-shrink-0" />
+          <div className="flex items-center gap-2 flex-1">
+            <School className="w-3 h-3 text-blue-600" />
+            <span className="text-xs">Sensitive Locations</span>
+          </div>
+        </div>
+        
+        <div className="pt-2 border-t border-border">
+          <div className="text-xs text-muted-foreground">
+            <Badge variant="outline" className="text-xs">
+              Green: Safe for clubs
+            </Badge>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

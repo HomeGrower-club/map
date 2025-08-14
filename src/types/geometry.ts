@@ -1,6 +1,19 @@
-import { FeatureCollection, Feature, Geometry } from '@turf/turf';
+// Standard GeoJSON types
+export interface Geometry {
+  type: string;
+  coordinates: number[] | number[][] | number[][][];
+}
 
-export type { FeatureCollection, Feature, Geometry };
+export interface Feature {
+  type: 'Feature';
+  geometry: Geometry;
+  properties: Record<string, unknown>;
+}
+
+export interface FeatureCollection {
+  type: 'FeatureCollection';
+  features: Feature[];
+}
 
 export interface ProcessingStats {
   features: number;

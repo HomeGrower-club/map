@@ -1,5 +1,5 @@
 import { LatLngBounds } from 'leaflet';
-import { FeatureCollection, Feature } from '@turf/turf';
+import type { FeatureCollection, Feature } from './geometry';
 import type { OSMData } from './osm';
 import type { ProcessingMode } from '../utils/constants';
 

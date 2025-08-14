@@ -4,10 +4,10 @@ import mvp_worker from '@duckdb/duckdb-wasm/dist/duckdb-browser-mvp.worker.js?ur
 import duckdb_wasm_eh from '@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url';
 import eh_worker from '@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?url';
 import { LatLngBounds } from 'leaflet';
-import { FeatureCollection } from '@turf/turf';
+import type { FeatureCollection } from '../types/geometry';
 import { Logger } from '../utils/logger';
-import { OSMData, OSMNode, OSMWay } from '../types/osm';
-import { ProcessingMode } from '../utils/constants';
+import type { OSMData, OSMNode, OSMWay } from '../types/osm';
+import type { ProcessingMode } from '../utils/constants';
 
 /**
  * DuckDB WASM Spatial Service for efficient geometry processing
@@ -16,7 +16,6 @@ export class DuckDBSpatialService {
   private db: duckdb.AsyncDuckDB | null = null;
   private conn: duckdb.AsyncDuckDBConnection | null = null;
   private initialized = false;
-  private hasMakeValid = false;
   private loadedFromParquet = false;
   private spatialCapabilities: {
     hasMakeValid: boolean;
@@ -156,73 +155,6 @@ export class DuckDBSpatialService {
     }
   }
 
-  /**
-   * Repair geometry using available methods
-   */
-  private async repairGeometry(geometryWKT: string): Promise<string | null> {
-    if (!this.conn) return null;
-
-    try {
-      // First check if geometry is valid
-      const validCheck = await this.conn.query(`
-        SELECT ST_IsValid(ST_GeomFromText('${geometryWKT}')) as is_valid
-      `);
-      const isValid = validCheck.toArray()[0].is_valid;
-      
-      if (isValid) {
-        return geometryWKT;
-      }
-
-      Logger.warn('Invalid geometry detected, attempting repair...');
-
-      // Try ST_MakeValid if available
-      if (this.spatialCapabilities.hasMakeValid) {
-        try {
-          const result = await this.conn.query(`
-            SELECT ST_AsText(ST_MakeValid(ST_GeomFromText('${geometryWKT}'))) as repaired
-          `);
-          const repaired = result.toArray()[0].repaired;
-          Logger.log('Geometry repaired with ST_MakeValid');
-          return repaired;
-        } catch (e) {
-          Logger.warn('ST_MakeValid failed:', e);
-        }
-      }
-
-      // Try ST_Buffer with 0 distance (common repair technique)
-      try {
-        const result = await this.conn.query(`
-          SELECT ST_AsText(ST_Buffer(ST_GeomFromText('${geometryWKT}'), 0)) as repaired
-        `);
-        const repaired = result.toArray()[0].repaired;
-        Logger.log('Geometry repaired with ST_Buffer(0)');
-        return repaired;
-      } catch (e) {
-        Logger.warn('ST_Buffer(0) failed:', e);
-      }
-
-      // Try reducing precision
-      if (this.spatialCapabilities.hasReducePrecision) {
-        try {
-          const result = await this.conn.query(`
-            SELECT ST_AsText(ST_ReducePrecision(ST_GeomFromText('${geometryWKT}'), 0.000001)) as repaired
-          `);
-          const repaired = result.toArray()[0].repaired;
-          Logger.log('Geometry repaired with ST_ReducePrecision');
-          return repaired;
-        } catch (e) {
-          Logger.warn('ST_ReducePrecision failed:', e);
-        }
-      }
-
-      // If all repair attempts fail, return null
-      Logger.error('All geometry repair attempts failed');
-      return null;
-    } catch (error) {
-      Logger.error('Error in geometry repair:', error);
-      return null;
-    }
-  }
 
   /**
    * Create database schema for spatial data with optimizations

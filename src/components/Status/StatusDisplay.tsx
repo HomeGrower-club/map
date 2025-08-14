@@ -1,41 +1,30 @@
-import React from 'react';
+import { useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
+import { toast } from 'sonner';
 
 export function StatusDisplay() {
   const { state } = useApp();
+  const previousStatusRef = useRef<string>('');
 
-  const getBackgroundColor = () => {
-    switch (state.ui.statusType) {
-      case 'error':
-        return '#ffebee';
-      case 'success':
-        return '#e8f5e9';
-      default:
-        return '#f0f0f0';
+  useEffect(() => {
+    // Only show toast if status changed and is not empty
+    if (state.ui.status && state.ui.status !== previousStatusRef.current) {
+      previousStatusRef.current = state.ui.status;
+      
+      switch (state.ui.statusType) {
+        case 'error':
+          toast.error(state.ui.status);
+          break;
+        case 'success':
+          toast.success(state.ui.status);
+          break;
+        default:
+          toast(state.ui.status);
+          break;
+      }
     }
-  };
+  }, [state.ui.status, state.ui.statusType]);
 
-  const getTextColor = () => {
-    switch (state.ui.statusType) {
-      case 'error':
-        return '#c62828';
-      case 'success':
-        return '#2e7d32';
-      default:
-        return '#333';
-    }
-  };
-
-  return (<></>
-    // <div 
-    //   className="status" 
-    //   id="status"
-    //   style={{
-    //     background: getBackgroundColor(),
-    //     color: getTextColor()
-    //   }}
-    // >
-    //   {state.ui.status}
-    // </div>
-  );
+  // StatusDisplay is now just a toast trigger - no visual component
+  return null;
 }
