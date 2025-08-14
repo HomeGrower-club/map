@@ -888,6 +888,66 @@ export class DuckDBSpatialService {
   }
 
   /**
+   * Get location points as GeoJSON for map display
+   */
+  async getLocationPointsAsGeoJSON(): Promise<FeatureCollection | null> {
+    if (!this.conn) throw new Error('Database not initialized');
+
+    try {
+      const result = await this.conn.query(`
+        SELECT 
+          osm_id,
+          ST_X(
+            CASE 
+              WHEN ST_GeometryType(geometry) = 'POINT' THEN geometry
+              ELSE ST_Centroid(geometry)
+            END
+          ) as lon,
+          ST_Y(
+            CASE 
+              WHEN ST_GeometryType(geometry) = 'POINT' THEN geometry
+              ELSE ST_Centroid(geometry)
+            END
+          ) as lat,
+          name,
+          type,
+          tags
+        FROM sensitive_locations
+        WHERE geometry IS NOT NULL
+        ORDER BY osm_id
+      `);
+
+      const rows = result.toArray();
+      
+      if (rows.length === 0) {
+        return null;
+      }
+
+      const features = rows.map(row => ({
+        type: 'Feature' as const,
+        properties: {
+          osm_id: row.osm_id,
+          name: row.name || null,
+          amenity: row.type,
+          tags: typeof row.tags === 'string' ? JSON.parse(row.tags) : row.tags
+        },
+        geometry: {
+          type: 'Point' as const,
+          coordinates: [row.lon, row.lat]
+        }
+      }));
+
+      return {
+        type: 'FeatureCollection' as const,
+        features
+      };
+    } catch (error) {
+      Logger.error('Failed to get location points as GeoJSON:', error);
+      return null;
+    }
+  }
+
+  /**
    * Analyze query performance (for debugging)
    */
   async analyzeQueryPerformance(query: string): Promise<string> {

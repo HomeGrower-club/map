@@ -6,6 +6,7 @@ import { cacheService } from '../../services/cacheService';
 import { useDuckDBSpatial } from '../../hooks/useDuckDBSpatial';
 import { Logger } from '../../utils/logger';
 import { DEBUG_MODE } from '../../utils/debugMode';
+import { osmDataToGeoJSON } from '../../utils/osmToGeoJSON';
 import { ConfirmDialog } from '../Dialogs/ConfirmDialog';
 import { Button } from '../ui/button';
 import { Card, CardContent } from '../ui/card';
@@ -128,10 +129,11 @@ export function ActionButtons() {
 
     dispatch({ type: 'SET_LOADING', payload: true });
     Logger.log(`🚀 handleFetchData called - forceRefresh: ${forceRefresh}, isDuckDBReady: ${isDuckDBReady}`);
-    dispatch({ 
-      type: 'SET_STATUS', 
-      payload: { message: 'Loading restricted locations...', type: 'info' } 
-    });
+    // No more status messages - only show loading spinner
+    // dispatch({ 
+    //   type: 'SET_STATUS', 
+    //   payload: { message: 'Loading restricted locations...', type: 'info' } 
+    // });
     dispatch({ 
       type: 'SET_PROGRESS', 
       payload: { progress: 0, message: 'Loading...' } 
@@ -159,13 +161,14 @@ export function ActionButtons() {
           const elapsed = (performance.now() - startTime).toFixed(0);
           const locationCount = parquetResult.count || 0;
           
-          dispatch({ 
-            type: 'SET_STATUS', 
-            payload: { 
-              message: `Found ${locationCount} schools, playgrounds and community centers`, 
-              type: 'success' 
-            } 
-          });
+          // No more success messages
+          // dispatch({ 
+          //   type: 'SET_STATUS', 
+          //   payload: { 
+          //     message: `Found ${locationCount} schools, playgrounds and community centers`, 
+          //     type: 'success' 
+          //   } 
+          // });
 
           dispatch({ 
             type: 'SET_STATS', 
@@ -180,6 +183,13 @@ export function ActionButtons() {
             type: 'SET_PROGRESS', 
             payload: { progress: 0, message: '' } 
           });
+
+          // Get location points as GeoJSON for map display
+          const geoJSON = await duckdbSpatial.getLocationPointsAsGeoJSON();
+          if (geoJSON) {
+            dispatch({ type: 'SET_GEOJSON', payload: geoJSON });
+            Logger.log('✅ GeoJSON data set for map display');
+          }
 
           setCanCalculate(true);
           Logger.log('✅ About to setIsLoadedFromParquet(true) - Parquet load successful');
@@ -208,6 +218,10 @@ export function ActionButtons() {
 
       const osmData = await overpassApi.fetchRestrictedLocations(state.map.bounds, forceRefresh);
       dispatch({ type: 'SET_RESTRICTED_LOCATIONS', payload: osmData });
+
+      // Convert OSM data to GeoJSON for map display
+      const geoJSON = osmDataToGeoJSON(osmData);
+      dispatch({ type: 'SET_GEOJSON', payload: geoJSON });
 
       dispatch({ 
         type: 'SET_PROGRESS', 
@@ -641,7 +655,7 @@ export function ActionButtons() {
       
       {/* User-friendly status for non-debug mode */}
       {!DEBUG_MODE && (
-        <div className="text-center p-3 bg-muted/50 rounded-lg border border-border">
+        <div className="text-center p-3 bg-muted/50 rounded-lg border border-border mt-2 mb-2">
           {!isDuckDBReady ? (
             <div className="flex items-center justify-center gap-2 text-sm">
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -653,14 +667,9 @@ export function ActionButtons() {
               <span>Finding schools, playgrounds and community centers...</span>
             </div>
           ) : state.map.zoom < 15 ? (
-            <div className="space-y-1">
-              <div className="flex items-center justify-center gap-2 text-sm">
-                <Database className="w-4 h-4" />
-                <span>Zoom in 2 more times to see available locations</span>
-              </div>
-              <div className="text-xs text-muted-foreground">
-                (Need closer view to show detailed results)
-              </div>
+            <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground p-2 bg-muted/30 rounded-md">
+              <Database className="w-3 h-3" />
+              <span>Zoom in closer to see locations</span>
             </div>
           ) : state.processing.isLoading ? (
             <div className="flex items-center justify-center gap-2 text-sm">
@@ -758,11 +767,11 @@ export function ActionButtons() {
       <Button
         onClick={handleClearAll}
         disabled={state.processing.isLoading}
-        variant={DEBUG_MODE ? "destructive" : "secondary"}
-        size={DEBUG_MODE ? "default" : "sm"}
-        className="w-full"
+        variant={DEBUG_MODE ? "destructive" : "ghost"}
+        size="sm"
+        className={DEBUG_MODE ? "w-full" : "w-full text-xs h-8"}
       >
-        <RotateCcw className="w-4 h-4 mr-2" />
+        <RotateCcw className="w-3 h-3 mr-1.5" />
         {DEBUG_MODE ? 'Clear All' : 'Reset'}
       </Button>
       

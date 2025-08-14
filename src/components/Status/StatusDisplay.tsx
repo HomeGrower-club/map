@@ -4,27 +4,24 @@ import { toast } from 'sonner';
 
 export function StatusDisplay() {
   const { state } = useApp();
-  const previousStatusRef = useRef<string>('');
+  const loadingToastRef = useRef<string | number | null>(null);
 
   useEffect(() => {
-    // Only show toast if status changed and is not empty
-    if (state.ui.status && state.ui.status !== previousStatusRef.current) {
-      previousStatusRef.current = state.ui.status;
-      
-      switch (state.ui.statusType) {
-        case 'error':
-          toast.error(state.ui.status);
-          break;
-        case 'success':
-          toast.success(state.ui.status);
-          break;
-        default:
-          toast(state.ui.status);
-          break;
+    if (state.processing.isLoading) {
+      // Show loading toast if not already showing
+      if (!loadingToastRef.current) {
+        loadingToastRef.current = toast.loading('Calculating eligible locations...', {
+          duration: Infinity, // Keep until manually dismissed
+        });
+      }
+    } else {
+      // Dismiss loading toast when done
+      if (loadingToastRef.current) {
+        toast.dismiss(loadingToastRef.current);
+        loadingToastRef.current = null;
       }
     }
-  }, [state.ui.status, state.ui.statusType]);
+  }, [state.processing.isLoading]);
 
-  // StatusDisplay is now just a toast trigger - no visual component
   return null;
 }

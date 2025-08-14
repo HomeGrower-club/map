@@ -1,8 +1,8 @@
+import { useState } from 'react';
 import { BufferControl } from './BufferControl';
 import { ModeSelector } from './ModeSelector';
 import { ActionButtons } from './ActionButtons';
 import { StatusDisplay } from '../Status/StatusDisplay';
-import { LoadingSpinner } from '../Status/ProgressBar';
 import { Statistics } from '../Status/Statistics';
 import { UserInfoSection } from './UserInfoSection';
 import { DEBUG_MODE } from '../../utils/debugMode';
@@ -10,8 +10,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { ScrollArea } from '../ui/scroll-area';
 import { Separator } from '../ui/separator';
+import { Button } from '../ui/button';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 
 export function ControlPanel() {
+  const [isExpanded, setIsExpanded] = useState(true);
+  
   if (DEBUG_MODE) {
     return (
       <Card className="absolute top-4 right-4 w-[380px] max-h-[90vh] bg-card/95 backdrop-blur-sm z-[1000]">
@@ -23,7 +27,7 @@ export function ControlPanel() {
         </CardHeader>
         
         <CardContent className="space-y-4">
-          <ScrollArea className="max-h-[70vh] pr-4">
+          <ScrollArea className="max-h-[70vh]">
             <Tabs defaultValue="user" className="w-full">
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="user">User</TabsTrigger>
@@ -33,8 +37,6 @@ export function ControlPanel() {
               <TabsContent value="user" className="space-y-4 mt-4">
                 <UserInfoSection />
                 <ActionButtons />
-                <StatusDisplay />
-                <LoadingSpinner />
                 <Statistics />
               </TabsContent>
               
@@ -45,8 +47,6 @@ export function ControlPanel() {
                 <BufferControl />
                 <ModeSelector />
                 <Separator />
-                <StatusDisplay />
-                <LoadingSpinner />
                 <Statistics />
               </TabsContent>
             </Tabs>
@@ -57,24 +57,33 @@ export function ControlPanel() {
   }
 
   return (
-    <Card className="absolute top-4 right-4 w-[380px] max-h-[90vh] bg-card/95 backdrop-blur-sm z-[1000]">
-      <CardHeader className="pb-4">
-        <CardTitle className="text-lg font-semibold">
+    <Card className={`absolute top-4 right-4 ${isExpanded ? 'w-[380px]' : 'w-[280px]'} max-h-[90vh] bg-card/95 backdrop-blur-sm z-[1000] transition-all duration-200`}>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-lg font-semibold flex items-center justify-between">
           Berlin Cannabis Club Map
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="h-8 w-8 p-0"
+          >
+            {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </Button>
         </CardTitle>
       </CardHeader>
       
-      <CardContent className="space-y-4">
-        <ScrollArea className="max-h-[70vh] pr-4">
-          <div className="">
-            <UserInfoSection />
-            <ActionButtons />
-            <StatusDisplay />
-            <LoadingSpinner />
-            <Statistics />
-          </div>
-        </ScrollArea>
-      </CardContent>
+      {isExpanded && (
+        <CardContent className="space-y-4">
+          <ScrollArea className="max-h-[70vh]">
+            <div className="">
+              <UserInfoSection />
+              <ActionButtons />
+              <Statistics />
+              <StatusDisplay />
+            </div>
+          </ScrollArea>
+        </CardContent>
+      )}
     </Card>
   );
 }

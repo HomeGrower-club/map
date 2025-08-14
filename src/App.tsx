@@ -9,12 +9,11 @@ function App() {
   return (
     <AppProvider>
       <FloatingLegend />
-        <LegalDisclaimer />
+      <LegalDisclaimer />
       <div className="relative h-screen w-full bg-background">
         <MapContainer />
         <ControlPanel />
-        
-        <Toaster position="bottom-left" />
+        <Toaster position="top-center" />
       </div>
     </AppProvider>
   );
