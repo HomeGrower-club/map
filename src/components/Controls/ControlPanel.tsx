@@ -12,6 +12,7 @@ import { ScrollArea } from '../ui/scroll-area';
 import { Separator } from '../ui/separator';
 import { Button } from '../ui/button';
 import { ChevronDown, ChevronUp } from 'lucide-react';
+import * as m from '../../paraglide/messages';
 
 export function ControlPanel() {
   const [isExpanded, setIsExpanded] = useState(true);
@@ -21,7 +22,7 @@ export function ControlPanel() {
       <Card className="absolute top-4 right-4 w-[380px] max-h-[90vh] bg-card/95 backdrop-blur-sm z-[1000]">
         <CardHeader className="pb-4">
           <CardTitle className="text-lg font-semibold flex items-center justify-between">
-            Berlin Cannabis Club Map
+            {m.app_title()}
             <span className="text-xs text-muted-foreground font-normal">[Debug Mode]</span>
           </CardTitle>
         </CardHeader>

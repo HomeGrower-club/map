@@ -8,6 +8,7 @@ import type { FeatureCollection } from '../types/geometry';
 import { Logger } from '../utils/logger';
 import type { OSMData, OSMNode, OSMWay } from '../types/osm';
 import type { ProcessingMode } from '../utils/constants';
+import * as m from '../paraglide/messages';
 
 /**
  * DuckDB WASM Spatial Service for efficient geometry processing
@@ -260,7 +261,7 @@ export class DuckDBSpatialService {
       }
 
       if (progressCallback) {
-        progressCallback('Loading optimized database...');
+        progressCallback(m.loading_optimized_db());
       }
 
       // Drop existing table if it exists
@@ -458,7 +459,7 @@ export class DuckDBSpatialService {
         
         if (progressCallback) {
           const progress = Math.round(((i + 1) / batches) * 100);
-          progressCallback(`Loading into DuckDB: ${progress}%`);
+          progressCallback(m.loading_into_duckdb({ progress }));
         }
         
         try {
@@ -717,7 +718,7 @@ export class DuckDBSpatialService {
       Logger.log(`Locations found in viewport: ${data?.location_count || 0}`);
 
       if (progressCallback) {
-        progressCallback(80, 'Processing results...');
+        progressCallback(80, m.processing_results());
       }
 
       // Parse results into FeatureCollections

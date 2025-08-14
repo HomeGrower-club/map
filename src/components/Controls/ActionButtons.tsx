@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
+import * as m from '../../paraglide/messages';
 
 export function ActionButtons() {
   const { state, dispatch } = useApp();
@@ -122,7 +123,7 @@ export function ActionButtons() {
     if (!state.map.bounds) {
       dispatch({ 
         type: 'SET_STATUS', 
-        payload: { message: 'Map bounds not available', type: 'error' } 
+        payload: { message: m.map_bounds_not_available(), type: 'error' } 
       });
       return;
     }
@@ -136,7 +137,7 @@ export function ActionButtons() {
     // });
     dispatch({ 
       type: 'SET_PROGRESS', 
-      payload: { progress: 0, message: 'Loading...' } 
+      payload: { progress: 0, message: m.status_loading() } 
     });
 
     const startTime = performance.now();
@@ -254,7 +255,7 @@ export function ActionButtons() {
       dispatch({ 
         type: 'SET_STATUS', 
         payload: { 
-          message: `Found ${osmData.elements.length} schools, playgrounds and community centers`, 
+          message: m.found_locations_count({ count: osmData.elements.length }), 
           type: 'success' 
         } 
       });
@@ -286,7 +287,7 @@ export function ActionButtons() {
     } catch (error) {
       dispatch({ 
         type: 'SET_STATUS', 
-        payload: { message: 'Error loading data. Please try again.', type: 'error' } 
+        payload: { message: m.error_loading_data(), type: 'error' } 
       });
       Logger.error('Fetch error', error);
       dispatch({ 
@@ -326,7 +327,7 @@ export function ActionButtons() {
     if (!hasData || !currentState.map.bounds) {
       dispatch({ 
         type: 'SET_STATUS', 
-        payload: { message: 'Please load restricted locations first', type: 'error' } 
+        payload: { message: m.please_load_first(), type: 'error' } 
       });
       return;
     }
@@ -339,7 +340,7 @@ export function ActionButtons() {
       dispatch({ 
         type: 'SET_STATUS', 
         payload: { 
-          message: `Please zoom in ${zoomText} to see available locations`, 
+          message: zoomsNeeded === 1 ? m.zoom_in_one_more() : m.zoom_in_times({ times: zoomText }), 
           type: 'info' 
         } 
       });
@@ -375,11 +376,11 @@ export function ActionButtons() {
     dispatch({ type: 'SET_LOADING', payload: true });
     dispatch({ 
       type: 'SET_STATUS', 
-      payload: { message: 'Calculating zones...', type: 'info' } 
+      payload: { message: m.calculating_zones(), type: 'info' } 
     });
     dispatch({ 
       type: 'SET_PROGRESS', 
-      payload: { progress: 0, message: 'Calculating...' } 
+      payload: { progress: 0, message: m.status_processing() } 
     });
 
     const startTime = performance.now();
@@ -423,7 +424,7 @@ export function ActionButtons() {
         dispatch({ 
           type: 'SET_STATUS', 
           payload: { 
-            message: 'Found suitable locations for cannabis clubs', 
+            message: m.found_suitable_locations(), 
             type: 'success' 
           } 
         });
@@ -433,7 +434,7 @@ export function ActionButtons() {
           payload: {
             features: featureCount,
             time: parseInt(elapsed),
-            mode: 'Safe locations found'
+            mode: m.safe_locations_found()
           } 
         });
 
@@ -452,7 +453,7 @@ export function ActionButtons() {
       } else {
         dispatch({ 
           type: 'SET_STATUS', 
-          payload: { message: 'No restricted zones found in this area', type: 'info' } 
+          payload: { message: m.no_restricted_zones(), type: 'info' } 
         });
         dispatch({ 
           type: 'SET_PROGRESS', 
@@ -465,12 +466,12 @@ export function ActionButtons() {
         Logger.log('Calculation was cancelled');
         dispatch({ 
           type: 'SET_STATUS', 
-          payload: { message: 'Calculation cancelled', type: 'info' } 
+          payload: { message: m.calculation_cancelled(), type: 'info' } 
         });
       } else {
         dispatch({ 
           type: 'SET_STATUS', 
-          payload: { message: 'Error calculating zones', type: 'error' } 
+          payload: { message: m.error_calculating_zones(), type: 'error' } 
         });
         Logger.error('Calculation error', error);
       }
@@ -483,7 +484,7 @@ export function ActionButtons() {
       abortControllerRef.current = null; // Clear abort controller
       dispatch({ type: 'SET_LOADING', payload: false });
     }
-  }, [state.processing.bufferDistance, state.processing.mode, dispatch, isDuckDBReady]);
+  }, [state.processing.bufferDistance, state.processing.mode, dispatch, isDuckDBReady, isLoadedFromParquet]);
 
   const handleClearAll = useCallback(() => {
     dispatch({ type: 'CLEAR_ALL' });
@@ -504,7 +505,7 @@ export function ActionButtons() {
     setCacheStats(cacheService.getCacheStats());
     dispatch({ 
       type: 'SET_STATUS', 
-      payload: { message: 'Cache cleared successfully', type: 'success' } 
+      payload: { message: m.cache_cleared(), type: 'success' } 
     });
   }, [dispatch]);
 
@@ -633,7 +634,7 @@ export function ActionButtons() {
       {DEBUG_MODE && (
         <div className="control-group" style={{ fontSize: '12px', color: '#666' }}>
           <div>
-            Processing Engine: {isDuckDBReady ? '✅ DuckDB Spatial' : isDuckDBInitializing ? '⏳ Initializing DuckDB...' : '⚠️ DuckDB (not ready)'}
+            Processing Engine: {isDuckDBReady ? `✅ ${m.processing_engine_ready()}` : isDuckDBInitializing ? `⏳ ${m.processing_engine_initializing()}` : `⚠️ ${m.processing_engine_not_ready()}`}
           </div>
         </div>
       )}
@@ -648,7 +649,7 @@ export function ActionButtons() {
             variant="outline"
           >
             <Download className="w-4 h-4 mr-2" />
-            Load Restricted Locations
+            {m.load_restricted_locations()}
           </Button>
         </div>
       )}
@@ -659,29 +660,29 @@ export function ActionButtons() {
           {!isDuckDBReady ? (
             <div className="flex items-center justify-center gap-2 text-sm">
               <Loader2 className="w-4 h-4 animate-spin" />
-              <span>Getting things ready...</span>
+              <span>{m.getting_ready()}</span>
             </div>
           ) : !dataLoadedRef.current ? (
             <div className="flex items-center justify-center gap-2 text-sm">
               <Download className="w-4 h-4" />
-              <span>Finding schools, playgrounds and community centers...</span>
+              <span>{m.finding_locations()}</span>
             </div>
           ) : state.map.zoom < 15 ? (
             <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground p-2 bg-muted/30 rounded-md">
               <Database className="w-3 h-3" />
-              <span>Zoom in closer to see locations</span>
+              <span>{m.zoom_closer_to_see()}</span>
             </div>
           ) : state.processing.isLoading ? (
             <div className="flex items-center justify-center gap-2 text-sm">
               <Calculator className="w-4 h-4" />
-              <span>Finding suitable locations for cannabis clubs...</span>
+              <span>{m.finding_suitable_locations()}</span>
             </div>
           ) : (
             <div className="flex items-center justify-center gap-2 text-sm text-green-600">
               <Badge variant="default" className="bg-green-500">
-                Ready!
+                {m.status_ready()}
               </Badge>
-              <span>Move around the map to explore different areas.</span>
+              <span>{m.explore_different_areas()}</span>
             </div>
           )}
         </div>
@@ -698,7 +699,7 @@ export function ActionButtons() {
           title="Load fresh data from OpenStreetMap (current session only)"
         >
           <RefreshCw className="w-4 h-4 mr-2" />
-          Load Fresh Data (Session Only)
+          {m.load_fresh_data()}
         </Button>
       )}
       
@@ -713,7 +714,7 @@ export function ActionButtons() {
           title="Force refresh from Overpass API (ignores cache)"
         >
           <RefreshCw className="w-3 h-3 mr-2" />
-          Force Refresh from API
+          {m.force_refresh_api()}
         </Button>
       )}
       
@@ -732,7 +733,7 @@ export function ActionButtons() {
           }
         >
           <Calculator className="w-4 h-4 mr-2" />
-          Calculate Eligible Zones
+          {m.calculate_eligible_zones()}
         </Button>
       )}
       
@@ -751,12 +752,12 @@ export function ActionButtons() {
                 htmlFor="auto-recalculate" 
                 className="text-sm font-normal cursor-pointer"
               >
-                Auto-recalculate on map movement
+                {m.auto_recalculate_label()}
               </Label>
             </div>
             {!hasCalculatedOnce && (
               <div className="text-xs text-muted-foreground mt-2">
-                (Calculate zones once to enable)
+                {m.auto_recalculate_hint()}
               </div>
             )}
           </CardContent>
@@ -772,7 +773,7 @@ export function ActionButtons() {
         className={DEBUG_MODE ? "w-full" : "w-full text-xs h-8"}
       >
         <RotateCcw className="w-3 h-3 mr-1.5" />
-        {DEBUG_MODE ? 'Clear All' : 'Reset'}
+        {DEBUG_MODE ? m.clear_all_button() : m.reset_button()}
       </Button>
       
       {/* Cache Management Section - only in debug mode */}
@@ -786,7 +787,7 @@ export function ActionButtons() {
               className="w-full mb-4"
             >
               <Database className="w-4 h-4 mr-2" />
-              Cache Management {showCacheOptions ? '▼' : '▶'}
+              {m.cache_management()} {showCacheOptions ? '▼' : '▶'}
             </Button>
             
             {showCacheOptions && (
@@ -797,15 +798,15 @@ export function ActionButtons() {
                       <div className="text-xs space-y-1 text-muted-foreground">
                         <div className="font-medium text-foreground mb-2 flex items-center gap-1">
                           <Settings className="w-3 h-3" />
-                          Cache Statistics
+                          {m.cache_statistics()}
                         </div>
-                        <div>• Entries: {cacheStats.totalEntries}</div>
-                        <div>• Size: {(cacheStats.totalSize / 1024).toFixed(1)} KB</div>
+                        <div>• {m.cache_entries()}: {cacheStats.totalEntries}</div>
+                        <div>• {m.cache_size()}: {(cacheStats.totalSize / 1024).toFixed(1)} KB</div>
                         {cacheStats.oldestEntry && (
-                          <div>• Oldest: {cacheStats.oldestEntry.toLocaleDateString()}</div>
+                          <div>• {m.cache_oldest()}: {cacheStats.oldestEntry.toLocaleDateString()}</div>
                         )}
                         {cacheStats.newestEntry && (
-                          <div>• Newest: {cacheStats.newestEntry.toLocaleDateString()}</div>
+                          <div>• {m.cache_newest()}: {cacheStats.newestEntry.toLocaleDateString()}</div>
                         )}
                       </div>
                     </CardContent>
@@ -819,7 +820,7 @@ export function ActionButtons() {
                   className="w-full"
                 >
                   <Trash2 className="w-4 h-4 mr-2" />
-                  Clear All Cache
+                  {m.clear_all_cache()}
                 </Button>
               </div>
             )}
@@ -830,10 +831,10 @@ export function ActionButtons() {
       {/* Fresh Data Warning Dialog */}
       <ConfirmDialog
         isOpen={showFreshDataDialog}
-        title="Load Fresh Data?"
-        message="This will bypass the optimized database and fetch fresh data directly from OpenStreetMap. This is slower and will only apply to your current browser session. The next time you load the app, it will use the optimized database again. Do you want to continue?"
-        confirmText="Yes, Load Fresh Data"
-        cancelText="Cancel"
+        title={m.fresh_data_dialog_title()}
+        message={m.fresh_data_dialog_message()}
+        confirmText={m.fresh_data_dialog_confirm()}
+        cancelText={m.fresh_data_dialog_cancel()}
         onConfirm={handleFreshDataConfirm}
         onCancel={() => setShowFreshDataDialog(false)}
         variant="warning"

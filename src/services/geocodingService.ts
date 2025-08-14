@@ -1,5 +1,6 @@
 import { Config } from '../utils/constants';
 import { Logger } from '../utils/logger';
+import * as m from '../paraglide/messages';
 
 export interface GeocodingResult {
   place_id: number;
@@ -85,7 +86,7 @@ export class GeocodingService {
 
       const response = await fetch(`${this.nominatimUrl}?${params}`, {
         headers: {
-          'User-Agent': 'Berlin Cannabis Club Map'
+          'User-Agent': m.app_title()
         }
       });
 
@@ -149,7 +150,7 @@ export class GeocodingService {
         `https://nominatim.openstreetmap.org/reverse?${params}`,
         {
           headers: {
-            'User-Agent': 'Berlin Cannabis Club Map'
+            'User-Agent': m.app_title()
           }
         }
       );
