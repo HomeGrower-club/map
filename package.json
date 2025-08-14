@@ -9,6 +9,7 @@
     "build:only": "paraglide-js compile && tsc -b && vite build",
     "generate-parquet": "node scripts/generate-parquet.js",
     "generate-parquet:cached": "node scripts/generate-parquet.js --use-cache",
+    "upload-parquet": "node scripts/upload-parquet.js",
     "lint": "eslint .",
     "preview": "vite preview"
   },
@@ -43,6 +44,7 @@
     "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
+    "@aws-sdk/client-s3": "^3.864.0",
     "@eslint/js": "^9.33.0",
     "@inlang/paraglide-js": "2.2.0",
     "@types/react": "^19.1.10",

@@ -4,7 +4,7 @@
 
 class LoggerClass {
   private startTime: number | null = null;
-  private isDevelopment: boolean = process.env.NODE_ENV === 'development';
+  private isDevelopment: boolean = import.meta.env.DEV;
 
   /**
    * Start a new log group with timing

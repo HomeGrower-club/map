@@ -227,14 +227,99 @@ export class DuckDBSpatialService {
   }
 
   /**
+   * Get the Parquet file URL based on environment
+   */
+  private getParquetUrl(): string {
+    // Use environment variable if set, otherwise default to local file
+    return import.meta.env.VITE_PARQUET_URL || '/berlin-locations.parquet';
+  }
+
+  /**
    * Check if Parquet file is available
    */
   async checkParquetAvailable(): Promise<boolean> {
     try {
-      const response = await fetch('/berlin-locations.parquet', { method: 'HEAD' });
+      const url = this.getParquetUrl();
+      const response = await fetch(url, { method: 'HEAD' });
       return response.ok;
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Get location details by OSM ID from the loaded data
+   */
+  async getLocationDetails(osmId: number): Promise<any> {
+    if (!this.conn) throw new Error('Database not initialized');
+    
+    try {
+      const result = await this.conn.query(`
+        SELECT osm_id, name, type, tags 
+        FROM sensitive_locations 
+        WHERE osm_id = ${osmId}
+      `);
+      
+      const rows = result.toArray();
+      if (rows.length > 0) {
+        const row = rows[0];
+        return {
+          osm_id: row.osm_id,
+          name: row.name,
+          type: row.type,
+          tags: typeof row.tags === 'string' ? JSON.parse(row.tags) : row.tags
+        };
+      }
+      return null;
+    } catch (error) {
+      Logger.error('Error fetching location details', error);
+      return null;
+    }
+  }
+
+  /**
+   * Get all locations as GeoJSON for map display
+   */
+  async getLocationsAsGeoJSON(): Promise<FeatureCollection> {
+    if (!this.conn) throw new Error('Database not initialized');
+    
+    try {
+      const result = await this.conn.query(`
+        SELECT 
+          osm_id,
+          name,
+          type,
+          tags,
+          ST_AsText(geometry) as wkt,
+          ST_X(ST_Centroid(geometry)) as lon,
+          ST_Y(ST_Centroid(geometry)) as lat
+        FROM sensitive_locations
+      `);
+      
+      const features = result.toArray().map(row => {
+        const tags = typeof row.tags === 'string' ? JSON.parse(row.tags) : row.tags;
+        return {
+          type: 'Feature' as const,
+          properties: {
+            osm_id: row.osm_id,
+            name: row.name || tags?.name || null,
+            amenity: tags?.amenity || tags?.leisure || row.type,
+            tags: tags || {}
+          },
+          geometry: {
+            type: 'Point' as const,
+            coordinates: [row.lon, row.lat]
+          }
+        };
+      });
+
+      return {
+        type: 'FeatureCollection' as const,
+        features
+      };
+    } catch (error) {
+      Logger.error('Error converting to GeoJSON', error);
+      return { type: 'FeatureCollection' as const, features: [] };
     }
   }
 
@@ -269,18 +354,28 @@ export class DuckDBSpatialService {
 
       // Register the Parquet file with DuckDB WASM
       // This is necessary for the browser to access the file via HTTP
+      const parquetUrl = this.getParquetUrl();
       await this.db.registerFileURL(
         'berlin-locations.parquet',  // Internal name for DuckDB
-        '/berlin-locations.parquet',  // URL path to fetch from
+        parquetUrl,  // URL path to fetch from (local or CDN)
         duckdb.DuckDBDataProtocol.HTTP,  // Use HTTP protocol
         false  // Don't cache the file registration
       );
+      
+      Logger.log(`Loading Parquet from: ${parquetUrl}`);
 
       // Now load the Parquet file into a table
       await this.conn.query(`
         CREATE TABLE sensitive_locations AS 
         SELECT * FROM read_parquet('berlin-locations.parquet')
       `);
+      
+      // Verify data was loaded
+      const parquetCountResult = await this.conn.query(
+        `SELECT COUNT(*) as count FROM sensitive_locations`
+      );
+      const parquetCount = parquetCountResult.toArray()[0].count;
+      Logger.log(`Loaded ${parquetCount} locations from Parquet file`);
 
       // Recreate indexes (they're not stored in Parquet)
       if (progressCallback) {

@@ -1,20 +1,19 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
-import { overpassApi } from '../../services/overpassApi';
+// Removed overpassApi - all data comes from parquet now
 import { duckdbSpatial } from '../../services/duckdbSpatial';
 import { cacheService } from '../../services/cacheService';
 import { useDuckDBSpatial } from '../../hooks/useDuckDBSpatial';
 import { Logger } from '../../utils/logger';
 import { DEBUG_MODE } from '../../utils/debugMode';
-import { osmDataToGeoJSON } from '../../utils/osmToGeoJSON';
-import { ConfirmDialog } from '../Dialogs/ConfirmDialog';
+// Removed osmDataToGeoJSON - data comes as GeoJSON from DuckDB
+// Removed ConfirmDialog - no more API calls
 import { Button } from '../ui/button';
 import { Card, CardContent } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { 
   Loader2, 
   Download, 
-  RefreshCw, 
   Calculator, 
   RotateCcw, 
   Database,
@@ -48,10 +47,10 @@ export function ActionButtons() {
   const [cacheStats, setCacheStats] = useState<ReturnType<typeof cacheService.getCacheStats> | null>(null);
   const [autoRecalculate, setAutoRecalculate] = useState(true);
   const [hasCalculatedOnce, setHasCalculatedOnce] = useState(false);
-  const [showFreshDataDialog, setShowFreshDataDialog] = useState(false);
+  // Removed fresh data dialog - no more API calls
   const [isLoadedFromParquet, setIsLoadedFromParquet] = useState(false);
   const [hasTriggeredAutoCalculate, setHasTriggeredAutoCalculate] = useState(false);
-  const [hasTriggeredAutoLoad, setHasTriggeredAutoLoad] = useState(false);
+  // Auto-load now handled by DataLoader component
   const { isInitialized: isDuckDBReady, isInitializing: isDuckDBInitializing } = useDuckDBSpatial();
   const previousBoundsRef = useRef<string | null>(null);
   const recalculateTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -119,7 +118,13 @@ export function ActionButtons() {
 
   // Auto-load data when app starts (defined after handleFetchData)
 
-  const handleFetchData = useCallback(async (forceRefresh = false) => {
+  const handleFetchData = useCallback(async () => {
+    // Check if data is already loaded (might have been loaded by DataLoader)
+    if (state.data.geoJSON && dataLoadedRef.current) {
+      Logger.log('✅ Data already loaded, skipping fetch');
+      return;
+    }
+
     if (!state.map.bounds) {
       dispatch({ 
         type: 'SET_STATUS', 
@@ -129,7 +134,7 @@ export function ActionButtons() {
     }
 
     dispatch({ type: 'SET_LOADING', payload: true });
-    Logger.log(`🚀 handleFetchData called - forceRefresh: ${forceRefresh}, isDuckDBReady: ${isDuckDBReady}`);
+    Logger.log(`🚀 handleFetchData called - isDuckDBReady: ${isDuckDBReady}`);
     // No more status messages - only show loading spinner
     // dispatch({ 
     //   type: 'SET_STATUS', 
@@ -143,8 +148,8 @@ export function ActionButtons() {
     const startTime = performance.now();
 
     try {
-      // If not forcing refresh, try to load from Parquet first
-      if (isDuckDBReady && !forceRefresh) {
+      // Always try to load from Parquet - no more API calls
+      if (isDuckDBReady) {
         dispatch({ 
           type: 'SET_PROGRESS', 
           payload: { progress: 0, message: 'Loading...' } 
@@ -186,7 +191,7 @@ export function ActionButtons() {
           });
 
           // Get location points as GeoJSON for map display
-          const geoJSON = await duckdbSpatial.getLocationPointsAsGeoJSON();
+          const geoJSON = await duckdbSpatial.getLocationsAsGeoJSON();
           if (geoJSON) {
             dispatch({ type: 'SET_GEOJSON', payload: geoJSON });
             Logger.log('✅ GeoJSON data set for map display');
@@ -209,80 +214,19 @@ export function ActionButtons() {
         }
       }
 
-      // If forced refresh or Parquet not available, load from OSM API
-      setIsLoadedFromParquet(false);
-      Logger.log('❌ setIsLoadedFromParquet(false) - Loading from OSM API');
-      dispatch({ 
-        type: 'SET_PROGRESS', 
-        payload: { progress: 0, message: 'Loading...' } 
-      });
-
-      const osmData = await overpassApi.fetchRestrictedLocations(state.map.bounds, forceRefresh);
-      dispatch({ type: 'SET_RESTRICTED_LOCATIONS', payload: osmData });
-
-      // Convert OSM data to GeoJSON for map display
-      const geoJSON = osmDataToGeoJSON(osmData);
-      dispatch({ type: 'SET_GEOJSON', payload: geoJSON });
-
-      dispatch({ 
-        type: 'SET_PROGRESS', 
-        payload: { progress: 0, message: 'Loading...' } 
-      });
-
-      // Load data into DuckDB for spatial processing
-      if (isDuckDBReady) {
-        // If we forced refresh, eject the Parquet data first
-        if (forceRefresh && duckdbSpatial.isLoadedFromParquet()) {
-          await duckdbSpatial.ejectParquetData();
-        }
-
-        await duckdbSpatial.loadOSMData(osmData, () => {
-          dispatch({ 
-            type: 'SET_PROGRESS', 
-            payload: { progress: 0, message: 'Loading...' } 
-          });
-        });
-        Logger.log('Data loaded into DuckDB for spatial processing');
-      }
-
-      dispatch({ 
-        type: 'SET_PROGRESS', 
-        payload: { progress: 0, message: 'Loading...' } 
-      });
-
-      const elapsed = (performance.now() - startTime).toFixed(0);
-
+      // Parquet not available or DuckDB not ready - show error
       dispatch({ 
         type: 'SET_STATUS', 
         payload: { 
-          message: m.found_locations_count({ count: osmData.elements.length }), 
-          type: 'success' 
+          message: m.error_loading_data(), 
+          type: 'error' 
         } 
       });
-
-      dispatch({ 
-        type: 'SET_STATS', 
-        payload: {
-          features: osmData.elements.length,
-          time: parseInt(elapsed),
-          mode: forceRefresh ? 'Fresh Fetch' : 'OSM API'
-        } 
-      });
-
       dispatch({ 
         type: 'SET_PROGRESS', 
         payload: { progress: 0, message: '' } 
       });
-
-      setCanCalculate(true);
-      dataLoadedRef.current = true; // Mark data as loaded and ready
-
-      setTimeout(() => {
-        dispatch({ 
-          type: 'SET_PROGRESS', 
-          payload: { progress: 0, message: '' } 
-        });
-      }, 1000);
+      Logger.error('Unable to load data', new Error('Parquet not available or DuckDB not ready'));
 
     } catch (error) {
       dispatch({ 
@@ -297,7 +241,7 @@ export function ActionButtons() {
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
-  }, [state.map.bounds, dispatch, isDuckDBReady]);
+  }, [state.map.bounds, state.data.geoJSON, dispatch, isDuckDBReady]);
 
   const handleCalculateZones = useCallback(async (isAutoRecalculate = false) => {
     // Use latest state to avoid stale closure issues
@@ -484,14 +428,13 @@ export function ActionButtons() {
       abortControllerRef.current = null; // Clear abort controller
       dispatch({ type: 'SET_LOADING', payload: false });
     }
-  }, [state.processing.bufferDistance, state.processing.mode, dispatch, isDuckDBReady, isLoadedFromParquet]);
+  }, [dispatch, isDuckDBReady, isLoadedFromParquet]);
 
   const handleClearAll = useCallback(() => {
     dispatch({ type: 'CLEAR_ALL' });
     setCanCalculate(false);
     setHasCalculatedOnce(false);
     setHasTriggeredAutoCalculate(false);
-    setHasTriggeredAutoLoad(false);
     setIsLoadedFromParquet(false);
     // Reset all refs
     previousBoundsRef.current = null;
@@ -509,23 +452,9 @@ export function ActionButtons() {
     });
   }, [dispatch]);
 
-  const handleFreshDataClick = useCallback(() => {
-    setShowFreshDataDialog(true);
-  }, []);
+  // Removed fresh data handlers - no more API calls from browser
 
-  const handleFreshDataConfirm = useCallback(async () => {
-    setShowFreshDataDialog(false);
-    await handleFetchData(true); // Force refresh
-  }, [handleFetchData]);
-
-  // Auto-load data when app starts (now after all callbacks are defined)
-  useEffect(() => {
-    if (!hasTriggeredAutoLoad && isDuckDBReady && !state.processing.isLoading) {
-      Logger.log('🚀 App started - attempting to auto-load data');
-      setHasTriggeredAutoLoad(true);
-      handleFetchData(false); // Try to load from Parquet first
-    }
-  }, [isDuckDBReady, hasTriggeredAutoLoad, state.processing.isLoading, handleFetchData]);
+  // Auto-load is now handled by DataLoader component which is always mounted
 
   // Auto-calculate when user reaches minimum zoom level for the first time (now after all callbacks are defined)
   useEffect(() => {
@@ -643,7 +572,7 @@ export function ActionButtons() {
       {DEBUG_MODE && (
         <div className="space-y-2">
           <Button
-            onClick={() => handleFetchData(false)}
+            onClick={() => handleFetchData()}
             disabled={state.processing.isLoading}
             className="w-full"
             variant="outline"
@@ -688,35 +617,7 @@ export function ActionButtons() {
         </div>
       )}
       
-      {/* Fresh data button - only in debug mode when loaded from Parquet */}
-      {DEBUG_MODE && isLoadedFromParquet && (
-        <Button
-          onClick={handleFreshDataClick}
-          disabled={state.processing.isLoading}
-          variant="outline"
-          className="w-full bg-yellow-100 border-yellow-300 text-yellow-800 hover:bg-yellow-200"
-          size="sm"
-          title="Load fresh data from OpenStreetMap (current session only)"
-        >
-          <RefreshCw className="w-4 h-4 mr-2" />
-          {m.load_fresh_data()}
-        </Button>
-      )}
-      
-      {/* Force refresh button - only in debug mode */}
-      {DEBUG_MODE && (
-        <Button
-          onClick={() => handleFetchData(true)}
-          disabled={state.processing.isLoading}
-          variant="secondary"
-          size="sm"
-          className="w-full"
-          title="Force refresh from Overpass API (ignores cache)"
-        >
-          <RefreshCw className="w-3 h-3 mr-2" />
-          {m.force_refresh_api()}
-        </Button>
-      )}
+      {/* Removed API refresh buttons - all data comes from parquet */}
       
       {/* Manual calculate button - only in debug mode */}
       {DEBUG_MODE && (
@@ -828,17 +729,7 @@ export function ActionButtons() {
         </Card>
       )}
       
-      {/* Fresh Data Warning Dialog */}
-      <ConfirmDialog
-        isOpen={showFreshDataDialog}
-        title={m.fresh_data_dialog_title()}
-        message={m.fresh_data_dialog_message()}
-        confirmText={m.fresh_data_dialog_confirm()}
-        cancelText={m.fresh_data_dialog_cancel()}
-        onConfirm={handleFreshDataConfirm}
-        onCancel={() => setShowFreshDataDialog(false)}
-        variant="warning"
-      />
+      {/* Removed fresh data dialog - all data comes from parquet */}
     </>
   );
 }
