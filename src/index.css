@@ -78,4 +78,9 @@
   body {
     @apply bg-background text-foreground;
   }
+  
+  /* Ensure Leaflet map container stays at base layer */
+  .leaflet-container {
+    z-index: 0;
+  }
 }

@@ -6,6 +6,7 @@ import tailwindcss from "@tailwindcss/vite"
 
 // https://vite.dev/config/
 export default defineConfig({
+  base: '/map/', // GitHub Pages repository name
   plugins: [paraglideVitePlugin({ project: './project.inlang', outdir: './src/paraglide' }),react(), tailwindcss(),
 ],
   resolve: {

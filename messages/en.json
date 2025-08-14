@@ -115,5 +115,20 @@
   "fresh_data_dialog_message": "This will bypass the optimized database and fetch fresh data directly from OpenStreetMap. This is slower and will only apply to your current browser session. The next time you load the app, it will use the optimized database again. Do you want to continue?",
   "fresh_data_dialog_confirm": "Yes, Load Fresh Data",
   "fresh_data_dialog_cancel": "Cancel",
-  "buffer_distance_label": "Buffer Distance"
+  "buffer_distance_label": "Buffer Distance",
+  "location_popup_name": "Name",
+  "location_popup_type": "Type",
+  "location_popup_osm_id": "OSM ID",
+  "location_popup_unnamed": "Unnamed location",
+  "location_popup_address": "Address",
+  "location_popup_operator": "Operator",
+  "location_popup_website": "Website",
+  "location_popup_opening_hours": "Opening Hours",
+  "location_popup_phone": "Phone",
+  "location_popup_email": "Email",
+  "location_popup_capacity": "Capacity",
+  "location_popup_wheelchair": "Wheelchair Access",
+  "location_popup_yes": "Yes",
+  "location_popup_no": "No",
+  "location_popup_limited": "Limited"
 }
