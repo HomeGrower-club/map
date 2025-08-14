@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npm run generate-parquet && tsc -b && vite build",
-    "build:only": "tsc -b && vite build",
+    "build": "paraglide-js compile && npm run generate-parquet && tsc -b && vite build",
+    "build:only": "paraglide-js compile && tsc -b && vite build",
     "generate-parquet": "node scripts/generate-parquet.js",
     "generate-parquet:cached": "node scripts/generate-parquet.js --use-cache",
     "lint": "eslint .",

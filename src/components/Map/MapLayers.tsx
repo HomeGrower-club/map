@@ -79,7 +79,7 @@ export function MapLayers() {
         <GeoJSON
           key="sensitive-locations"
           data={state.data.geoJSON}
-          pointToLayer={(feature, latlng) => {
+          pointToLayer={(_feature, latlng) => {
             // Create the circle marker with custom pane for proper layering
             const marker = L.circleMarker(latlng, {
               radius: Config.styles.sensitiveLocation.radius,
