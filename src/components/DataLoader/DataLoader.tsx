@@ -30,7 +30,7 @@ export function DataLoader() {
         return;
       }
 
-      Logger.log('🚀 DataLoader: Auto-loading data from parquet');
+      Logger.log('DataLoader: Loading data from parquet');
       setHasTriggeredAutoLoad(true);
       
       dispatch({ type: 'SET_LOADING', payload: true });
@@ -78,13 +78,12 @@ export function DataLoader() {
 
           // Get location points as GeoJSON for map display
           const geoJSON = await duckdbSpatial.getLocationsAsGeoJSON();
-          Logger.log(`📍 Got ${geoJSON.features.length} features for map display`);
           dispatch({ type: 'SET_GEOJSON', payload: geoJSON });
 
           // Mark data as loaded
           dataLoadedRef.current = true;
           
-          Logger.log(`✅ Data loaded successfully: ${locationCount} locations in ${elapsed}ms`);
+          Logger.log(`Data loaded: ${locationCount} locations in ${elapsed}ms`);
           
           // Clear status message after a moment
           setTimeout(() => {

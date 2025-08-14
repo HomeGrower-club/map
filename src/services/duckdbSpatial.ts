@@ -132,7 +132,7 @@ export class DuckDBSpatialService {
     try {
       await this.conn.query(`SELECT ST_MakeValid(ST_GeomFromText('POINT(0 0)')) as test`);
       this.spatialCapabilities.hasMakeValid = true;
-      Logger.log('✅ ST_MakeValid is available');
+      // ST_MakeValid is available
     } catch {
       Logger.warn('⚠️ ST_MakeValid is not available');
     }
@@ -141,7 +141,7 @@ export class DuckDBSpatialService {
     try {
       await this.conn.query(`SELECT ST_ReducePrecision(ST_GeomFromText('POINT(0 0)'), 0.001) as test`);
       this.spatialCapabilities.hasReducePrecision = true;
-      Logger.log('✅ ST_ReducePrecision is available');
+      // ST_ReducePrecision is available
     } catch {
       Logger.warn('⚠️ ST_ReducePrecision is not available');
     }
@@ -150,7 +150,7 @@ export class DuckDBSpatialService {
     try {
       await this.conn.query(`SELECT ST_SimplifyPreserveTopology(ST_GeomFromText('LINESTRING(0 0, 1 1, 2 2)'), 0.1) as test`);
       this.spatialCapabilities.hasSimplifyPreserveTopology = true;
-      Logger.log('✅ ST_SimplifyPreserveTopology is available');
+      // ST_SimplifyPreserveTopology is available
     } catch {
       Logger.warn('⚠️ ST_SimplifyPreserveTopology is not available');
     }
@@ -284,7 +284,6 @@ export class DuckDBSpatialService {
     if (!this.conn) throw new Error('Database not initialized');
     
     try {
-      Logger.log('Fetching locations as GeoJSON...');
       const result = await this.conn.query(`
         SELECT 
           osm_id,
@@ -298,7 +297,6 @@ export class DuckDBSpatialService {
       `);
       
       const rows = result.toArray();
-      Logger.log(`Query returned ${rows.length} rows`);
       
       const features = rows.map(row => {
         const tags = typeof row.tags === 'string' ? JSON.parse(row.tags) : row.tags;
@@ -316,8 +314,6 @@ export class DuckDBSpatialService {
           }
         };
       });
-
-      Logger.log(`Created ${features.length} GeoJSON features`);
       
       return {
         type: 'FeatureCollection' as const,
@@ -383,17 +379,13 @@ export class DuckDBSpatialService {
       if (parquetUrl.startsWith('http://') || parquetUrl.startsWith('https://')) {
         // Remote file - use full URL
         queryPath = parquetUrl;
-        Logger.log('Using remote URL for read_parquet');
       } else {
         // Local file - use the registered internal name
         queryPath = internalFileName;
-        Logger.log('Using registered name for read_parquet');
       }
       
       // Escape single quotes in the path to prevent SQL injection
       const escapedPath = queryPath.replace(/'/g, "''");
-      
-      Logger.log(`Executing: CREATE TABLE sensitive_locations AS SELECT * FROM read_parquet('${escapedPath}')`);
       
       await this.conn.query(`
         CREATE TABLE sensitive_locations AS 
@@ -405,28 +397,7 @@ export class DuckDBSpatialService {
         `SELECT COUNT(*) as count FROM sensitive_locations`
       );
       const parquetCount = parquetCountResult.toArray()[0].count;
-      Logger.log(`Loaded ${parquetCount} locations from Parquet file`);
-      
-      // Debug: Check what columns we have
-      const columnsResult = await this.conn.query(`
-        SELECT column_name 
-        FROM information_schema.columns 
-        WHERE table_name = 'sensitive_locations'
-      `);
-      const columns = columnsResult.toArray().map(r => r.column_name);
-      Logger.log(`Table columns: ${columns.join(', ')}`);
-      
-      // Debug: Check a sample row to see the data structure
-      const sampleResult = await this.conn.query(`
-        SELECT * FROM sensitive_locations LIMIT 1
-      `);
-      if (sampleResult.toArray().length > 0) {
-        const sample = sampleResult.toArray()[0];
-        Logger.log('Sample row:', sample);
-        if (sample.geometry) {
-          Logger.log('Geometry type:', typeof sample.geometry);
-        }
-      }
+      Logger.log(`Loaded ${parquetCount} locations from Parquet`);
 
       // Recreate indexes (they're not stored in Parquet)
       if (progressCallback) {

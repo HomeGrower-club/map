@@ -28,7 +28,7 @@ export function AutoCalculator() {
   // Check if data is loaded by checking GeoJSON state
   useEffect(() => {
     if (state.data.geoJSON && state.data.geoJSON.features && state.data.geoJSON.features.length > 0) {
-      Logger.log('✅ AutoCalculator: Data detected as loaded');
+      Logger.log('AutoCalculator: Data loaded');
       setIsDataLoaded(true);
     }
   }, [state.data.geoJSON]);
@@ -37,7 +37,7 @@ export function AutoCalculator() {
   const isSignificantMovement = useCallback((newBoundsString: string, previousBoundsString: string | null, currentZoom: number): boolean => {
     // Always recalculate on zoom level change
     if (currentZoom !== previousZoomRef.current) {
-      Logger.log(`🔍 Zoom changed from ${previousZoomRef.current} to ${currentZoom} - significant movement`);
+      Logger.log(`Zoom changed: ${previousZoomRef.current} → ${currentZoom}`);
       previousZoomRef.current = currentZoom;
       return true;
     }
@@ -77,9 +77,9 @@ export function AutoCalculator() {
     const isSignificant = significantCenterMovement || significantSizeChange;
     
     if (!isSignificant) {
-      Logger.log(`📍 Movement too small: center ${(maxCenterMovement * 100).toFixed(1)}%, size ${(maxSizeChange * 100).toFixed(1)}% - skipping recalculation`);
+      // Movement too small - skipping recalculation
     } else {
-      Logger.log(`📍 Significant movement: center ${(maxCenterMovement * 100).toFixed(1)}%, size ${(maxSizeChange * 100).toFixed(1)}% - will recalculate`);
+      Logger.log(`Map moved ${(maxCenterMovement * 100).toFixed(0)}% - recalculating`);
     }
     
     return isSignificant;
@@ -91,7 +91,7 @@ export function AutoCalculator() {
     
     // Check minimum zoom level
     if (state.map.zoom < minZoomForCalculation) {
-      Logger.log(`⏳ AutoCalculator: Zoom level ${state.map.zoom} is below minimum ${minZoomForCalculation}`);
+      // Zoom level too low for calculation
       return;
     }
     
@@ -109,7 +109,7 @@ export function AutoCalculator() {
     
     // Check if data is loaded
     if (!hasDuckDBData || !state.map.bounds) {
-      Logger.log('⏳ AutoCalculator: Waiting for data and bounds');
+      // Waiting for data and bounds
       return;
     }
     
@@ -130,7 +130,7 @@ export function AutoCalculator() {
     abortControllerRef.current = new AbortController();
     isCalculatingRef.current = true;
     
-    Logger.log(`🎯 AutoCalculator: ${isAutoRecalculate ? 'Auto-recalculating' : 'Calculating'} zones at zoom ${state.map.zoom}`);
+    Logger.log(`Calculating zones at zoom ${state.map.zoom}`);
     
     setHasCalculatedOnce(true);
     dispatch({ type: 'SET_LOADING', payload: true });
@@ -248,7 +248,7 @@ export function AutoCalculator() {
       state.map.zoom >= minZoomForCalculation && // Zoom level is sufficient
       state.map.bounds                         // Map bounds are set
     ) {
-      Logger.log(`🎯 Auto-triggering calculation at zoom level ${state.map.zoom} (data confirmed loaded)`);
+      Logger.log(`Auto-calculating at zoom ${state.map.zoom}`);
       setHasTriggeredAutoCalculate(true);
       handleCalculateZones(true); // Trigger as auto-calculation
     }
@@ -291,20 +291,20 @@ export function AutoCalculator() {
         return;
       }
       
-      Logger.log(`🗺️ Bounds changed significantly from: ${previousBoundsRef.current} to: ${currentBounds}`);
+      // Bounds changed significantly
       
       // Update the previous bounds
       previousBoundsRef.current = currentBounds;
       
       // Clear any existing timer
       if (recalculateTimerRef.current) {
-        Logger.log('⏳ Cancelling previous auto-recalculate timer');
+        // Cancelling previous timer
         clearTimeout(recalculateTimerRef.current);
       }
       
       // Set a new timer for recalculation with debounce
       recalculateTimerRef.current = setTimeout(() => {
-        Logger.log(`🔄 Auto-recalculating zones after significant bounds change`);
+        Logger.log('Auto-recalculating zones');
         handleCalculateZones(true); // Pass true for auto-recalculate
       }, 1000); // 1 second debounce
     }

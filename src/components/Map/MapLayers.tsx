@@ -34,7 +34,8 @@ export function MapLayers() {
   useEffect(() => {
     if (!map.getPane('locationMarkers')) {
       const pane = map.createPane('locationMarkers');
-      pane.style.zIndex = '650'; // Higher than overlayPane (400) but lower than shadowPane (500)
+      pane.style.zIndex = '600'; // Higher than popupPane (700) to ensure markers are always visible
+      pane.style.pointerEvents = 'auto'; // Ensure the pane can receive pointer events
     }
   }, [map]);
 
@@ -75,12 +76,18 @@ export function MapLayers() {
       )}
 
       {/* Sensitive Locations (Blue markers) - Render last so they appear on top and remain clickable */}
-      {state.data.geoJSON && console.log(`📍 MapLayers rendering ${state.data.geoJSON.features?.length || 0} location markers`)}
-      {state.data.geoJSON && (
+      {state.data.geoJSON && state.data.geoJSON.features && state.data.geoJSON.features.length > 0 && (
         <GeoJSON
-          key="sensitive-locations"
+          key={`sensitive-locations-${state.data.geoJSON.features.length}`} // Force re-render when data changes
           data={state.data.geoJSON}
           pointToLayer={(_feature, latlng) => {
+            // Ensure the custom pane exists before creating markers
+            if (!map.getPane('locationMarkers')) {
+              const pane = map.createPane('locationMarkers');
+              pane.style.zIndex = '600';
+              pane.style.pointerEvents = 'auto';
+            }
+            
             // Create the circle marker with custom pane for proper layering
             const marker = L.circleMarker(latlng, {
               radius: Config.styles.sensitiveLocation.radius,
