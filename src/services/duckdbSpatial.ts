@@ -231,7 +231,15 @@ export class DuckDBSpatialService {
    */
   private getParquetUrl(): string {
     // Use environment variable if set, otherwise default to local file
-    return import.meta.env.VITE_PARQUET_URL || '/berlin-locations.parquet';
+    const url = import.meta.env.VITE_PARQUET_URL || '/berlin-locations.parquet';
+    
+    // Convert relative URLs to absolute URLs for browser context
+    // This ensures DuckDB can access the file via HTTP
+    if (url.startsWith('/')) {
+      return `${window.location.origin}${url}`;
+    }
+    
+    return url;
   }
 
   /**
@@ -386,24 +394,15 @@ export class DuckDBSpatialService {
       Logger.log(`Loading Parquet from: ${parquetUrl}`);
 
       // Now load the Parquet file into a table
-      // DuckDB WASM has different requirements for local vs remote files:
-      // - For remote files (http/https), we use the full URL
-      // - For local files, we use the registered internal name
-      let queryPath: string;
-      if (parquetUrl.startsWith('http://') || parquetUrl.startsWith('https://')) {
-        // Remote file - use full URL
-        queryPath = parquetUrl;
-      } else {
-        // Local file - use the registered internal name
-        queryPath = internalFileName;
-      }
+      // Since getParquetUrl() now always returns absolute URLs,
+      // we can always use the URL directly in the query
       
-      // Escape single quotes in the path to prevent SQL injection
-      const escapedPath = queryPath.replace(/'/g, "''");
+      // Escape single quotes in the URL to prevent SQL injection
+      const escapedUrl = parquetUrl.replace(/'/g, "''");
       
       await this.conn.query(`
         CREATE TABLE sensitive_locations AS 
-        SELECT * FROM read_parquet('${escapedPath}')
+        SELECT * FROM read_parquet('${escapedUrl}')
       `);
       
       // Verify data was loaded
