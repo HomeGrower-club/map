@@ -18,7 +18,7 @@ class LoggerClass {
   /**
    * End log group and report elapsed time
    */
-  groupEnd(_name: string): void {
+  groupEnd(): void {
     if (!this.isDevelopment) return;
     const elapsed = this.startTime ? (performance.now() - this.startTime).toFixed(2) : 0;
     console.log(`⏱️ Time elapsed: ${elapsed}ms`);
@@ -28,7 +28,7 @@ class LoggerClass {
   /**
    * Standard log with timestamp
    */
-  log(message: string, data?: any): void {
+  log(message: string, data?: unknown): void {
     if (!this.isDevelopment) return;
     const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
     if (data !== undefined) {
@@ -41,7 +41,7 @@ class LoggerClass {
   /**
    * Warning log for non-critical issues
    */
-  warn(message: string, data?: any): void {
+  warn(message: string, data?: unknown): void {
     if (!this.isDevelopment) return;
     if (data !== undefined) {
       console.warn(`⚠️ ${message}`, data);

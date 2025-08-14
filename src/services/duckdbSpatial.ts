@@ -84,10 +84,10 @@ export class DuckDBSpatialService {
       
       this.initialized = true;
       Logger.log('DuckDB initialized with spatial extension');
-      Logger.groupEnd('Initializing DuckDB WASM');
+      Logger.groupEnd();
     } catch (error) {
       Logger.error('Failed to initialize DuckDB', error);
-      Logger.groupEnd('Initializing DuckDB WASM');
+      Logger.groupEnd();
       throw error;
     }
   }
@@ -255,7 +255,7 @@ export class DuckDBSpatialService {
       const parquetAvailable = await this.checkParquetAvailable();
       if (!parquetAvailable) {
         Logger.log('Parquet file not found');
-        Logger.groupEnd('Loading from Parquet file');
+        Logger.groupEnd();
         return { success: false };
       }
 
@@ -325,7 +325,7 @@ export class DuckDBSpatialService {
 
       this.loadedFromParquet = true;
       Logger.log(`Loaded ${count} locations from Parquet`);
-      Logger.groupEnd('Loading from Parquet file');
+      Logger.groupEnd();
 
       if (progressCallback) {
         progressCallback(`Loaded ${count} locations from optimized database`);
@@ -334,7 +334,7 @@ export class DuckDBSpatialService {
       return { success: true, count };
     } catch (error) {
       Logger.error('Failed to load from Parquet:', error);
-      Logger.groupEnd('Loading from Parquet file');
+      Logger.groupEnd();
       return { success: false };
     }
   }

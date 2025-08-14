@@ -1,4 +1,6 @@
 {
   "$schema": "https://inlang.com/schema/inlang-message-format",
-  "example_message": "Hello world {username}"
+  "example_message": "Hello world {username}",
+  "disclaimer_text": "This tool provides general information only and does not constitute legal advice. Cannabis regulations are complex and subject to change. Always consult qualified legal professionals and verify current local regulations before making decisions.",
+  "disclaimer_title": "Legal Disclaimer"
 }

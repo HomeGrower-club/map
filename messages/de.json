@@ -1,4 +1,6 @@
 {
   "$schema": "https://inlang.com/schema/inlang-message-format",
-  "example_message": "Guten Tag {username}"
+  "example_message": "Guten Tag {username}",
+  "disclaimer_text": "Dieses Tool bietet nur allgemeine Informationen und stellt keine Rechtsberatung dar. Cannabis-Vorschriften sind komplex und können sich ändern. Konsultieren Sie immer qualifizierte Rechtsexperten und überprüfen Sie die aktuellen örtlichen Vorschriften, bevor Sie Entscheidungen treffen.",
+  "disclaimer_title": "Rechtlicher Hinweis"
 }

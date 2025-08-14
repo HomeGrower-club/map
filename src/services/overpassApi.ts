@@ -68,7 +68,7 @@ export class OverpassApiService {
       if (cachedData) {
         Logger.log('Using cached data');
         Logger.log('Cached elements:', cachedData.elements.length);
-        Logger.groupEnd('Fetching Restricted Locations');
+        Logger.groupEnd();
         return cachedData;
       }
     }
@@ -97,12 +97,12 @@ export class OverpassApiService {
       // Cache the successful response with Berlin bounds
       cacheService.cacheOSMData(berlinBounds, data);
       
-      Logger.groupEnd('Fetching Restricted Locations');
+      Logger.groupEnd();
       
       return data;
     } catch (error) {
       Logger.error('Error fetching data', error);
-      Logger.groupEnd('Fetching Restricted Locations');
+      Logger.groupEnd();
       throw error;
     }
   }
