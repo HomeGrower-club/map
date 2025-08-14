@@ -355,8 +355,13 @@ export class DuckDBSpatialService {
       // Register the Parquet file with DuckDB WASM
       // This is necessary for the browser to access the file via HTTP
       const parquetUrl = this.getParquetUrl();
+      
+      // Use a consistent internal name for the registered file
+      const internalFileName = 'berlin-locations.parquet';
+      
+      // Register the file with DuckDB
       await this.db.registerFileURL(
-        'berlin-locations.parquet',  // Internal name for DuckDB
+        internalFileName,  // Internal name for DuckDB
         parquetUrl,  // URL path to fetch from (local or CDN)
         duckdb.DuckDBDataProtocol.HTTP,  // Use HTTP protocol
         false  // Don't cache the file registration
@@ -365,9 +370,16 @@ export class DuckDBSpatialService {
       Logger.log(`Loading Parquet from: ${parquetUrl}`);
 
       // Now load the Parquet file into a table
+      // When using registerFileURL, we need to use the full URL in read_parquet
+      // if it's from a CDN, otherwise use the registered internal name
+      const parquetPath = parquetUrl.startsWith('http') ? parquetUrl : internalFileName;
+      
+      // Escape single quotes in the path to prevent SQL injection
+      const escapedPath = parquetPath.replace(/'/g, "''");
+      
       await this.conn.query(`
         CREATE TABLE sensitive_locations AS 
-        SELECT * FROM read_parquet('berlin-locations.parquet')
+        SELECT * FROM read_parquet('${escapedPath}')
       `);
       
       // Verify data was loaded
